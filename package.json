@@ -37,13 +37,13 @@
         "category": "Awesome Copilot"
       },
       {
-        "command": "awesome-copilot-sync.syncPrompts", 
+        "command": "awesome-copilot-sync.syncPrompts",
         "title": "Sync Prompts Only",
         "category": "Awesome Copilot"
       },
       {
         "command": "awesome-copilot-sync.syncInstructions",
-        "title": "Sync Instructions Only", 
+        "title": "Sync Instructions Only",
         "category": "Awesome Copilot"
       },
       {
@@ -59,6 +59,21 @@
       {
         "command": "awesome-copilot-sync.findAndAddAgent",
         "title": "Find and Add Agent",
+        "category": "Awesome Copilot"
+      },
+      {
+        "command": "awesome-copilot-sync.findAndAddPrompt",
+        "title": "Find and Add Prompt",
+        "category": "Awesome Copilot"
+      },
+      {
+        "command": "awesome-copilot-sync.findAndAddInstruction",
+        "title": "Find and Add Instruction",
+        "category": "Awesome Copilot"
+      },
+      {
+        "command": "awesome-copilot-sync.findAndAddSkill",
+        "title": "Find and Add Skill",
         "category": "Awesome Copilot"
       }
     ],
@@ -81,7 +96,7 @@
           "description": "Automatically sync when workspace opens"
         },
         "awesome-copilot-sync.syncOnSave": {
-          "type": "boolean", 
+          "type": "boolean",
           "default": false,
           "description": "Check for updates when saving copilot files"
         }
@@ -132,18 +147,23 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:vscode": "npm run pretest && node ./out/test/runTest.js",
     "package": "vsce package",
     "deploy": "vsce publish"
   },
-  "dependencies": {},
   "devDependencies": {
-    "@types/vscode": "^1.90.0",
+    "@types/jest": "^29.5.14",
     "@types/node": "20.x",
+    "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^7.11.0",
     "@typescript-eslint/parser": "^7.11.0",
+    "@vscode/vsce": "^2.15.0",
     "eslint": "^8.57.0",
-    "typescript": "^5.4.5",
-    "@vscode/vsce": "^2.15.0"
+    "jest": "^29.7.0",
+    "ts-jest": "^29.4.6",
+    "typescript": "^5.4.5"
   }
 }

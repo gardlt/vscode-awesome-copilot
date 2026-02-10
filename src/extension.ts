@@ -19,6 +19,33 @@ interface AgentMetadata {
     downloadUrl: string;
 }
 
+interface PromptMetadata {
+    name: string;
+    filename: string;
+    description: string;
+    category?: string;
+    tags?: string[];
+    downloadUrl: string;
+}
+
+interface InstructionMetadata {
+    name: string;
+    filename: string;
+    description: string;
+    scope?: string;
+    language?: string;
+    downloadUrl: string;
+}
+
+interface SkillMetadata {
+    name: string;
+    filename: string;
+    description: string;
+    domain?: string;
+    complexity?: string;
+    downloadUrl: string;
+}
+
 interface SyncStatus {
     success: boolean;
     files: string[];
@@ -37,7 +64,10 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('awesome-copilot-sync.syncInstructions', () => syncResourceType('instructions')),
         vscode.commands.registerCommand('awesome-copilot-sync.syncSkills', () => syncResourceType('skills')),
         vscode.commands.registerCommand('awesome-copilot-sync.initializeStructure', initializeStructure),
-        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddAgent', findAndAddAgent)
+        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddAgent', findAndAddAgent),
+        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddPrompt', findAndAddPrompt),
+        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddInstruction', findAndAddInstruction),
+        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddSkill', findAndAddSkill)
     ];
 
     commands.forEach(command => context.subscriptions.push(command));
@@ -459,6 +489,414 @@ async function addAgentToProject(agent: AgentMetadata, workspaceFolder: string, 
     } catch (error) {
         vscode.window.showErrorMessage(`Failed to add agent: ${error}`);
     }
+}
+
+function parsePromptMetadata(filename: string, content: string, downloadUrl: string): PromptMetadata {
+    const name = filename.replace('.prompt.md', '').replace(/-/g, ' ')
+        .split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    
+    // Extract frontmatter
+    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    let description = 'No description available';
+    let category: string | undefined;
+    let tags: string[] | undefined;
+
+    if (frontmatterMatch) {
+        const frontmatter = frontmatterMatch[1];
+        
+        // Parse description
+        const descMatch = frontmatter.match(/description:\s*['"]([^'"]+)['"]/);
+        if (descMatch) {
+            description = descMatch[1];
+        }
+
+        // Parse category
+        const categoryMatch = frontmatter.match(/category:\s*['"]?([^'"\s]+)['"]?/);
+        if (categoryMatch) {
+            category = categoryMatch[1];
+        }
+
+        // Parse tags array
+        const tagsMatch = frontmatter.match(/tags:\s*\[(.*?)\]/s);
+        if (tagsMatch) {
+            const tagsStr = tagsMatch[1];
+            tags = tagsStr.split(',')
+                .map(tag => tag.trim().replace(/['"]/, ''))
+                .filter(tag => tag.length > 0);
+        }
+    }
+
+    return {
+        name,
+        filename,
+        description,
+        category,
+        tags,
+        downloadUrl
+    };
+}
+
+function parseInstructionMetadata(filename: string, content: string, downloadUrl: string): InstructionMetadata {
+    const name = filename.replace('.instructions.md', '').replace(/-/g, ' ')
+        .split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    
+    // Extract frontmatter
+    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    let description = 'No description available';
+    let scope: string | undefined;
+    let language: string | undefined;
+
+    if (frontmatterMatch) {
+        const frontmatter = frontmatterMatch[1];
+        
+        // Parse description
+        const descMatch = frontmatter.match(/description:\s*['"]([^'"]+)['"]/);
+        if (descMatch) {
+            description = descMatch[1];
+        }
+
+        // Parse scope
+        const scopeMatch = frontmatter.match(/scope:\s*['"]?([^'"\s]+)['"]?/);
+        if (scopeMatch) {
+            scope = scopeMatch[1];
+        }
+
+        // Parse language
+        const languageMatch = frontmatter.match(/language:\s*['"]?([^'"\s]+)['"]?/);
+        if (languageMatch) {
+            language = languageMatch[1];
+        }
+    }
+
+    return {
+        name,
+        filename,
+        description,
+        scope,
+        language,
+        downloadUrl
+    };
+}
+
+function parseSkillMetadata(filename: string, content: string, downloadUrl: string): SkillMetadata {
+    const name = filename.replace('.skill.md', '').replace(/-/g, ' ')
+        .split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    
+    // Extract frontmatter
+    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    let description = 'No description available';
+    let domain: string | undefined;
+    let complexity: string | undefined;
+
+    if (frontmatterMatch) {
+        const frontmatter = frontmatterMatch[1];
+        
+        // Parse description
+        const descMatch = frontmatter.match(/description:\s*['"]([^'"]+)['"]/);
+        if (descMatch) {
+            description = descMatch[1];
+        }
+
+        // Parse domain
+        const domainMatch = frontmatter.match(/domain:\s*['"]?([^'"\s]+)['"]?/);
+        if (domainMatch) {
+            domain = domainMatch[1];
+        }
+
+        // Parse complexity
+        const complexityMatch = frontmatter.match(/complexity:\s*['"]?([^'"\s]+)['"]?/);
+        if (complexityMatch) {
+            complexity = complexityMatch[1];
+        }
+    }
+
+    return {
+        name,
+        filename,
+        description,
+        domain,
+        complexity,
+        downloadUrl
+    };
+}
+
+async function addPromptToProject(prompt: PromptMetadata, workspaceFolder: string, repository: string, branch: string) {
+    try {
+        // Ensure prompts directory exists
+        const promptsDir = path.join(workspaceFolder, '.github', 'prompts');
+        if (!fs.existsSync(promptsDir)) {
+            fs.mkdirSync(promptsDir, { recursive: true });
+        }
+
+        // Download the prompt content
+        const content = await downloadFile(prompt.downloadUrl);
+        
+        // Add attribution header
+        const attribution = `<!-- Synced from: https://github.com/${repository}/blob/${branch}/prompts/${prompt.filename} -->\n`;
+        const finalContent = attribution + content;
+
+        // Write to local file
+        const localPath = path.join(promptsDir, prompt.filename);
+        fs.writeFileSync(localPath, finalContent);
+
+        // Show success message with option to open the file
+        const action = await vscode.window.showInformationMessage(
+            `✅ Added prompt "${prompt.name}" to your project!`,
+            'Open File'
+        );
+
+        if (action === 'Open File') {
+            const document = await vscode.workspace.openTextDocument(localPath);
+            await vscode.window.showTextDocument(document);
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to add prompt: ${error}`);
+    }
+}
+
+async function addInstructionToProject(instruction: InstructionMetadata, workspaceFolder: string, repository: string, branch: string) {
+    try {
+        // Ensure instructions directory exists
+        const instructionsDir = path.join(workspaceFolder, '.github', 'instructions');
+        if (!fs.existsSync(instructionsDir)) {
+            fs.mkdirSync(instructionsDir, { recursive: true });
+        }
+
+        // Download the instruction content
+        const content = await downloadFile(instruction.downloadUrl);
+        
+        // Add attribution header
+        const attribution = `<!-- Synced from: https://github.com/${repository}/blob/${branch}/instructions/${instruction.filename} -->\n`;
+        const finalContent = attribution + content;
+
+        // Write to local file
+        const localPath = path.join(instructionsDir, instruction.filename);
+        fs.writeFileSync(localPath, finalContent);
+
+        // Show success message with option to open the file
+        const action = await vscode.window.showInformationMessage(
+            `✅ Added instruction "${instruction.name}" to your project!`,
+            'Open File'
+        );
+
+        if (action === 'Open File') {
+            const document = await vscode.workspace.openTextDocument(localPath);
+            await vscode.window.showTextDocument(document);
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to add instruction: ${error}`);
+    }
+}
+
+async function addSkillToProject(skill: SkillMetadata, workspaceFolder: string, repository: string, branch: string) {
+    try {
+        // Ensure skills directory exists
+        const skillsDir = path.join(workspaceFolder, '.github', 'skills');
+        if (!fs.existsSync(skillsDir)) {
+            fs.mkdirSync(skillsDir, { recursive: true });
+        }
+
+        // Download the skill content
+        const content = await downloadFile(skill.downloadUrl);
+        
+        // Add attribution header
+        const attribution = `<!-- Synced from: https://github.com/${repository}/blob/${branch}/skills/${skill.filename} -->\n`;
+        const finalContent = attribution + content;
+
+        // Write to local file
+        const localPath = path.join(skillsDir, skill.filename);
+        fs.writeFileSync(localPath, finalContent);
+
+        // Show success message with option to open the file
+        const action = await vscode.window.showInformationMessage(
+            `✅ Added skill "${skill.name}" to your project!`,
+            'Open File'
+        );
+
+        if (action === 'Open File') {
+            const document = await vscode.workspace.openTextDocument(localPath);
+            await vscode.window.showTextDocument(document);
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to add skill: ${error}`);
+    }
+}
+
+async function findAndAddPrompt() {
+    const workspaceFolder = getWorkspaceFolder();
+    if (!workspaceFolder) return;
+
+    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
+    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
+    const branch = config.get<string>('branch') || 'main';
+
+    return vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Loading available prompts...",
+        cancellable: false
+    }, async () => {
+        try {
+            // Fetch available prompts
+            const promptFiles = await fetchDirectoryContents(repository, branch, 'prompts');
+            const prompts: PromptMetadata[] = [];
+
+            // Parse prompt metadata from each file
+            for (const file of promptFiles) {
+                if (file.type === 'file' && file.name.endsWith('.prompt.md')) {
+                    try {
+                        const content = await downloadFile(file.download_url!);
+                        const metadata = parsePromptMetadata(file.name, content, file.download_url!);
+                        prompts.push(metadata);
+                    } catch (error) {
+                        console.warn(`Failed to parse prompt ${file.name}:`, error);
+                    }
+                }
+            }
+
+            if (prompts.length === 0) {
+                vscode.window.showWarningMessage('No prompts found in the target repository.');
+                return;
+            }
+
+            // Show prompt picker
+            const quickPickItems = prompts.map(prompt => ({
+                label: prompt.name,
+                description: prompt.description,
+                detail: `Category: ${prompt.category || 'Not specified'} | Tags: ${prompt.tags?.join(', ') || 'None'}`,
+                prompt
+            }));
+
+            const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+                matchOnDescription: true,
+                matchOnDetail: true,
+                placeHolder: 'Search and select a prompt to add to your project...'
+            });
+
+            if (selectedItem) {
+                await addPromptToProject(selectedItem.prompt, workspaceFolder, repository, branch);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to load prompts: ${error}`);
+        }
+    });
+}
+
+async function findAndAddInstruction() {
+    const workspaceFolder = getWorkspaceFolder();
+    if (!workspaceFolder) return;
+
+    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
+    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
+    const branch = config.get<string>('branch') || 'main';
+
+    return vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Loading available instructions...",
+        cancellable: false
+    }, async () => {
+        try {
+            // Fetch available instructions
+            const instructionFiles = await fetchDirectoryContents(repository, branch, 'instructions');
+            const instructions: InstructionMetadata[] = [];
+
+            // Parse instruction metadata from each file
+            for (const file of instructionFiles) {
+                if (file.type === 'file' && file.name.endsWith('.instructions.md')) {
+                    try {
+                        const content = await downloadFile(file.download_url!);
+                        const metadata = parseInstructionMetadata(file.name, content, file.download_url!);
+                        instructions.push(metadata);
+                    } catch (error) {
+                        console.warn(`Failed to parse instruction ${file.name}:`, error);
+                    }
+                }
+            }
+
+            if (instructions.length === 0) {
+                vscode.window.showWarningMessage('No instructions found in the target repository.');
+                return;
+            }
+
+            // Show instruction picker
+            const quickPickItems = instructions.map(instruction => ({
+                label: instruction.name,
+                description: instruction.description,
+                detail: `Scope: ${instruction.scope || 'Not specified'} | Language: ${instruction.language || 'All'}`,
+                instruction
+            }));
+
+            const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+                matchOnDescription: true,
+                matchOnDetail: true,
+                placeHolder: 'Search and select an instruction to add to your project...'
+            });
+
+            if (selectedItem) {
+                await addInstructionToProject(selectedItem.instruction, workspaceFolder, repository, branch);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to load instructions: ${error}`);
+        }
+    });
+}
+
+async function findAndAddSkill() {
+    const workspaceFolder = getWorkspaceFolder();
+    if (!workspaceFolder) return;
+
+    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
+    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
+    const branch = config.get<string>('branch') || 'main';
+
+    return vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: "Loading available skills...",
+        cancellable: false
+    }, async () => {
+        try {
+            // Fetch available skills
+            const skillFiles = await fetchDirectoryContents(repository, branch, 'skills');
+            const skills: SkillMetadata[] = [];
+
+            // Parse skill metadata from each file
+            for (const file of skillFiles) {
+                if (file.type === 'file' && file.name.endsWith('.skill.md')) {
+                    try {
+                        const content = await downloadFile(file.download_url!);
+                        const metadata = parseSkillMetadata(file.name, content, file.download_url!);
+                        skills.push(metadata);
+                    } catch (error) {
+                        console.warn(`Failed to parse skill ${file.name}:`, error);
+                    }
+                }
+            }
+
+            if (skills.length === 0) {
+                vscode.window.showWarningMessage('No skills found in the target repository.');
+                return;
+            }
+
+            // Show skill picker
+            const quickPickItems = skills.map(skill => ({
+                label: skill.name,
+                description: skill.description,
+                detail: `Domain: ${skill.domain || 'Not specified'} | Complexity: ${skill.complexity || 'Not specified'}`,
+                skill
+            }));
+
+            const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+                matchOnDescription: true,
+                matchOnDetail: true,
+                placeHolder: 'Search and select a skill to add to your project...'
+            });
+
+            if (selectedItem) {
+                await addSkillToProject(selectedItem.skill, workspaceFolder, repository, branch);
+            }
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to load skills: ${error}`);
+        }
+    });
 }
 
 export function deactivate() {}
