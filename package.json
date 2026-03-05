@@ -46,17 +46,13 @@
         "category": "Awesome Copilot"
       },
       {
+        "command": "awesome-copilot-sync.initializeStructure",
         "title": "Initialize Project Structure",
         "category": "Awesome Copilot"
       },
       {
         "command": "awesome-copilot-sync.findAndAddAgent",
         "title": "Find and Add Agent",
-        "category": "Awesome Copilot"
-      },
-      {
-        "command": "awesome-copilot-sync.findAndAddPrompt",
-        "title": "Find and Add Prompt",
         "category": "Awesome Copilot"
       },
       {
@@ -138,18 +134,6 @@
       "commandPalette": [
         {
           "command": "awesome-copilot-sync.configure"
-        },
-        {
-          "command": "awesome-copilot-sync.syncAgents"
-        },
-        {
-          "command": "awesome-copilot-sync.syncPrompts"
-        },
-        {
-          "command": "awesome-copilot-sync.syncInstructions"
-        },
-        {
-          "command": "awesome-copilot-sync.syncSkills"
         },
         {
           "command": "awesome-copilot-sync.initializeStructure"

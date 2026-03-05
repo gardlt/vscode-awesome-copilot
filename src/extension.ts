@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
+import * as childProcess from 'child_process';
 
 // Logging utility functions
 function logInfo(operation: string, message: string, data?: any) {
@@ -106,8 +107,8 @@ async function getCachedAgentMetadata(repository: string, branch: string): Promi
     }
 
     const cacheBase = getLocalCacheDir(repository);
-    const agentsDir = await ensureResourceDir(cacheBase, 'agents',
-        () => syncFlatDir(repository, branch, 'agents', path.join(cacheBase, 'agents'), '.agent.md'));
+    await ensureRepoCached(cacheBase, repository, branch);
+    const agentsDir = path.join(cacheBase, 'agents');
 
     const agents: AgentMetadata[] = [];
     for (const file of fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'))) {
@@ -128,36 +129,6 @@ async function getCachedAgentMetadata(repository: string, branch: string): Promi
     return agents;
 }
 
-async function getCachedPromptMetadata(repository: string, branch: string): Promise<PromptMetadata[]> {
-    const cacheKey = 'parsed-prompts';
-    const cached = repositoryCache.get<PromptMetadata[]>(repository, branch, cacheKey);
-    if (cached) {
-        logInfo('METADATA_CACHE', 'Using cached prompt metadata', { count: cached.length });
-        return cached;
-    }
-
-    const cacheBase = getLocalCacheDir(repository);
-    const promptsDir = await ensureResourceDir(cacheBase, 'prompts',
-        () => syncFlatDir(repository, branch, 'prompts', path.join(cacheBase, 'prompts'), '.prompt.md'));
-
-    const prompts: PromptMetadata[] = [];
-    for (const file of fs.readdirSync(promptsDir).filter(f => f.endsWith('.prompt.md'))) {
-        try {
-            const localPath = path.join(promptsDir, file);
-            const content = fs.readFileSync(localPath, 'utf8');
-            const downloadUrl = `https://raw.githubusercontent.com/${repository}/${branch}/prompts/${file}`;
-            const metadata = parsePromptMetadata(file, content, downloadUrl);
-            metadata.localPath = localPath;
-            prompts.push(metadata);
-        } catch (error) {
-            logWarn('METADATA_CACHE', 'Failed to parse prompt', { file, error });
-        }
-    }
-
-    repositoryCache.set(repository, branch, cacheKey, prompts);
-    logInfo('METADATA_CACHE', 'Prompt metadata cached', { count: prompts.length });
-    return prompts;
-}
 
 async function getCachedInstructionMetadata(repository: string, branch: string): Promise<InstructionMetadata[]> {
     const cacheKey = 'parsed-instructions';
@@ -168,8 +139,8 @@ async function getCachedInstructionMetadata(repository: string, branch: string):
     }
 
     const cacheBase = getLocalCacheDir(repository);
-    const instructionsDir = await ensureResourceDir(cacheBase, 'instructions',
-        () => syncFlatDir(repository, branch, 'instructions', path.join(cacheBase, 'instructions'), '.instructions.md'));
+    await ensureRepoCached(cacheBase, repository, branch);
+    const instructionsDir = path.join(cacheBase, 'instructions');
 
     const instructions: InstructionMetadata[] = [];
     for (const file of fs.readdirSync(instructionsDir).filter(f => f.endsWith('.instructions.md'))) {
@@ -199,8 +170,8 @@ async function getCachedSkillMetadata(repository: string, branch: string): Promi
     }
 
     const cacheBase = getLocalCacheDir(repository);
-    const skillsDir = await ensureResourceDir(cacheBase, 'skills',
-        () => syncSkillsDir(repository, branch, path.join(cacheBase, 'skills')));
+    await ensureRepoCached(cacheBase, repository, branch);
+    const skillsDir = path.join(cacheBase, 'skills');
 
     const skills: SkillMetadata[] = [];
     for (const folderName of fs.readdirSync(skillsDir)) {
@@ -236,16 +207,6 @@ interface AgentMetadata {
     description: string;
     model?: string;
     tools?: string[];
-    downloadUrl: string;
-    localPath?: string;
-}
-
-interface PromptMetadata {
-    name: string;
-    filename: string;
-    description: string;
-    category?: string;
-    tags?: string[];
     downloadUrl: string;
     localPath?: string;
 }
@@ -295,89 +256,80 @@ function getLocalCacheDir(repository: string): string {
     return cachePath;
 }
 
-/**
- * Ensures a resource subdirectory exists in the disk cache.
- * If it doesn't exist, creates it and calls syncFn to populate it from GitHub.
- */
-async function ensureResourceDir(
-    cacheBase: string,
-    resourceType: string,
-    syncFn: () => Promise<void>
-): Promise<string> {
-    const dir = path.join(cacheBase, resourceType);
-    if (!fs.existsSync(dir)) {
-        logInfo('DISK_CACHE', `Cache miss for "${resourceType}", syncing from GitHub...`);
-        fs.mkdirSync(dir, { recursive: true });
-        try {
-            await syncFn();
-        } catch (err) {
-            // Remove the dir on failure so the next call re-attempts the sync
-            fs.rmSync(dir, { recursive: true, force: true });
-            throw err;
-        }
-    }
-    return dir;
-}
-
-/** Downloads all files with `ext` from a flat GitHub directory and writes them to `localDir`. */
-async function syncFlatDir(
-    repository: string, branch: string,
-    remoteDir: string, localDir: string, ext: string
-): Promise<void> {
-    const files = await fetchDirectoryContents(repository, branch, remoteDir);
-    for (const file of files) {
-        if (file.type !== 'file' || !file.name.endsWith(ext) || !file.download_url) { continue; }
-        const content = await downloadFile(file.download_url);
-        fs.writeFileSync(path.join(localDir, file.name), content);
-    }
-    logInfo('DISK_CACHE', `Synced ${remoteDir} to disk`, { localDir, ext });
-}
-
-/** Downloads SKILL.md for every skill folder and writes them into `skillsDir/<name>/SKILL.md`. */
-async function syncSkillsDir(repository: string, branch: string, skillsDir: string): Promise<void> {
-    const dirs = await fetchDirectoryContents(repository, branch, 'skills');
-    for (const dir of dirs.filter(d => d.type === 'dir')) {
-        const skillFolder = path.join(skillsDir, dir.name);
-        if (!fs.existsSync(skillFolder)) { fs.mkdirSync(skillFolder, { recursive: true }); }
-        try {
-            const url = `https://raw.githubusercontent.com/${repository}/${branch}/skills/${dir.name}/SKILL.md`;
-            fs.writeFileSync(path.join(skillFolder, 'SKILL.md'), await downloadFile(url));
-        } catch {
-            // No SKILL.md — skip this skill
-        }
-    }
-    logInfo('DISK_CACHE', 'Synced skills to disk', { skillsDir });
-}
-
-/** Downloads plugin.json for every plugin and writes it to `pluginsDir/<name>/.github/plugin/plugin.json`. */
-async function syncPluginsDir(repository: string, branch: string, pluginsDir: string): Promise<void> {
-    const dirs = await fetchDirectoryContents(repository, branch, 'plugins');
-    for (const dir of dirs.filter(d => d.type === 'dir')) {
-        const manifestDir = path.join(pluginsDir, dir.name, '.github', 'plugin');
-        if (!fs.existsSync(manifestDir)) { fs.mkdirSync(manifestDir, { recursive: true }); }
-        try {
-            const url = `https://raw.githubusercontent.com/${repository}/${branch}/plugins/${dir.name}/.github/plugin/plugin.json`;
-            fs.writeFileSync(path.join(manifestDir, 'plugin.json'), await downloadFile(url));
-        } catch {
-            // No plugin.json — skip
-        }
-    }
-    logInfo('DISK_CACHE', 'Synced plugins to disk', { pluginsDir });
+/** Downloads a binary file from `url` to `destPath`, following redirects. */
+async function downloadBinaryToFile(url: string, destPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const doRequest = (requestUrl: string) => {
+            https.get(requestUrl, { headers: { 'User-Agent': 'VSCode-Awesome-Copilot-Sync' } }, (res) => {
+                if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    res.resume();
+                    doRequest(res.headers.location);
+                    return;
+                }
+                if (res.statusCode !== 200) {
+                    res.resume();
+                    reject(new Error(`HTTP ${res.statusCode} downloading ${requestUrl}`));
+                    return;
+                }
+                const file = fs.createWriteStream(destPath);
+                res.pipe(file);
+                file.on('finish', () => file.close(() => resolve()));
+                file.on('error', reject);
+                res.on('error', reject);
+            }).on('error', reject);
+        };
+        doRequest(url);
+    });
 }
 
 /**
- * Syncs the marketplace.json index file from the marketplace repository.
- * This file contains metadata about all available resources in the marketplace.
+ * Downloads the entire repository as a tarball and extracts it into `destDir`.
+ * GitHub tarballs have a single top-level folder (e.g. `repo-sha/`); --strip-components=1
+ * removes it so the repo contents land directly in `destDir`.
  */
-async function syncMarketplaceIndex(repository: string, branch: string, cacheDir: string): Promise<void> {
+async function downloadRepoTarball(repository: string, branch: string, destDir: string): Promise<void> {
+    const [owner, repo] = repository.split('/');
+    const url = `https://codeload.github.com/${owner}/${repo}/tar.gz/refs/heads/${branch}`;
+    const tmpFile = path.join(os.tmpdir(), `awesome-copilot-${Date.now()}.tar.gz`);
+
+    logInfo('DISK_CACHE', 'Downloading repository tarball', { repository, branch, url, destDir });
     try {
-        const url = `https://raw.githubusercontent.com/${repository}/${branch}/marketplace.json`;
-        const content = await downloadFile(url);
-        fs.writeFileSync(path.join(cacheDir, 'marketplace.json'), content);
-        logInfo('MARKETPLACE', 'Synced marketplace.json', { repository, branch, cacheDir });
-    } catch (err) {
-        logWarn('MARKETPLACE', 'Failed to sync marketplace.json', { repository, branch, error: err });
+        await downloadBinaryToFile(url, tmpFile);
+        if (!fs.existsSync(destDir)) { fs.mkdirSync(destDir, { recursive: true }); }
+        await new Promise<void>((resolve, reject) => {
+            childProcess.exec(
+                `tar -xz --strip-components=1 -C "${destDir}" -f "${tmpFile}"`,
+                (err) => { if (err) { reject(err); } else { resolve(); } }
+            );
+        });
+        logInfo('DISK_CACHE', 'Repository tarball extracted', { repository, branch, destDir });
+    } finally {
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore cleanup errors */ }
     }
+}
+
+/**
+ * Ensures the full repository is cached locally.
+ * Downloads and extracts the tarball on first access; subsequent calls are no-ops.
+ * Call with `force = true` to re-download even if the cache exists.
+ */
+async function ensureRepoCached(cacheBase: string, repository: string, branch: string, force = false): Promise<void> {
+    const sentinelPath = path.join(cacheBase, '.synced');
+    if (!force && fs.existsSync(sentinelPath)) { return; }
+
+    logInfo('DISK_CACHE', `Downloading full repository "${repository}"...`);
+    // Clear any partial/stale state before re-downloading
+    if (fs.existsSync(cacheBase)) {
+        fs.rmSync(cacheBase, { recursive: true, force: true });
+    }
+    await downloadRepoTarball(repository, branch, cacheBase);
+    fs.writeFileSync(sentinelPath, new Date().toISOString());
+}
+
+/** Downloads the full marketplace repo, replacing the local cache. */
+async function syncMarketplaceResources(repository: string, branch: string, cacheDir: string): Promise<void> {
+    await ensureRepoCached(cacheDir, repository, branch, /* force */ true);
+    logInfo('MARKETPLACE', 'Completed marketplace resource sync', { repository, branch, cacheDir });
 }
 
 /**
@@ -386,20 +338,12 @@ async function syncMarketplaceIndex(repository: string, branch: string, cacheDir
  */
 async function ensureMarketplaceSynced(repository: string, branch: string): Promise<void> {
     const cacheDir = getLocalCacheDir(repository);
-    const marketplaceJsonPath = path.join(cacheDir, 'marketplace.json');
-    
     logInfo('MARKETPLACE', 'Ensuring marketplace is synced', { repository, branch, cacheDir });
-    
-    // If marketplace.json doesn't exist, sync it
-    if (!fs.existsSync(marketplaceJsonPath)) {
-        try {
-            await syncMarketplaceIndex(repository, branch, cacheDir);
-        } catch (err) {
-            logError('MARKETPLACE', 'Failed to sync marketplace', { repository, error: err });
-            throw err;
-        }
-    } else {
-        logInfo('MARKETPLACE', 'Marketplace already cached', { marketplaceJsonPath });
+    try {
+        await ensureRepoCached(cacheDir, repository, branch);
+    } catch (err) {
+        logError('MARKETPLACE', 'Failed to sync marketplace', { repository, error: err });
+        throw err;
     }
 }
 
@@ -422,7 +366,6 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('awesome-copilot-sync.syncMarketplace', syncMarketplace),
         vscode.commands.registerCommand('awesome-copilot-sync.initializeStructure', initializeStructure),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddAgent', findAndAddAgent),
-        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddPrompt', findAndAddPrompt),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddInstruction', findAndAddInstruction),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddSkill', findAndAddSkill),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddPlugin', findAndAddPlugin),
@@ -435,7 +378,7 @@ export function activate(context: vscode.ExtensionContext) {
     logInfo('EXTENSION', 'Registered commands', {
         commandCount: commands.length,
         commands: [
-            'configure', 'removeRepository', 'syncMarketplace', 'initializeStructure', 'findAndAddAgent', 'findAndAddPrompt',
+            'configure', 'removeRepository', 'syncMarketplace', 'initializeStructure', 'findAndAddAgent',
             'findAndAddInstruction', 'findAndAddSkill', 'findAndAddPlugin', 'clearCache', 'showCacheStats'
         ]
     });
@@ -583,7 +526,7 @@ async function syncMarketplace() {
             title: `Syncing marketplace ${repoConfig.repository}...`,
             cancellable: false
         }, async () => {
-            await syncMarketplaceIndex(repoConfig.repository, repoConfig.branch, getLocalCacheDir(repoConfig.repository));
+            await syncMarketplaceResources(repoConfig.repository, repoConfig.branch, getLocalCacheDir(repoConfig.repository));
             logInfo('SYNC_MARKETPLACE', 'Marketplace sync completed', { operationId, repository: repoConfig.repository });
         });
 
@@ -670,8 +613,7 @@ async function initializeStructure() {
     const directories = [
         '.github',
         '.github/agents',
-        '.github/instructions', 
-        '.github/prompts',
+        '.github/instructions',
         '.github/skills'
     ];
 
@@ -1211,77 +1153,6 @@ async function addAgentToProject(agent: AgentMetadata, workspaceFolder: string, 
     }
 }
 
-function parsePromptMetadata(filename: string, content: string, downloadUrl: string): PromptMetadata {
-    const operationId = generateOperationId();
-    logDebug('PARSE_PROMPT', 'Starting prompt metadata parsing', {
-        operationId,
-        filename,
-        contentLength: content.length
-    });
-    
-    const name = filename.replace('.prompt.md', '').replace(/-/g, ' ')
-        .split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-    
-    // Extract frontmatter
-    const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
-    let description = 'No description available';
-    let category: string | undefined;
-    let tags: string[] | undefined;
-
-    logDebug('PARSE_PROMPT', 'Frontmatter extraction result', {
-        operationId,
-        hasFrontmatter: !!frontmatterMatch
-    });
-
-    if (frontmatterMatch) {
-        const frontmatter = frontmatterMatch[1];
-        
-        // Parse description
-        const descMatch = frontmatter.match(/description:\s*['"]([^'"]+)['"]/);
-        if (descMatch) {
-            description = descMatch[1];
-        }
-
-        // Parse category
-        const categoryMatch = frontmatter.match(/category:\s*['"]?([^'"\s]+)['"]?/);
-        if (categoryMatch) {
-            category = categoryMatch[1];
-        }
-
-        // Parse tags array
-        const tagsMatch = frontmatter.match(/tags:\s*\[(.*?)\]/s);
-        if (tagsMatch) {
-            const tagsStr = tagsMatch[1];
-            tags = tagsStr.split(',')
-                .map(tag => tag.trim().replace(/['"]/, ''))
-                .filter(tag => tag.length > 0);
-        }
-        
-        logDebug('PARSE_PROMPT', 'Parsed prompt metadata', {
-            operationId,
-            description,
-            category,
-            tags
-        });
-    }
-
-    const result = {
-        name,
-        filename,
-        description,
-        category,
-        tags,
-        downloadUrl
-    };
-    
-    logInfo('PARSE_PROMPT', 'Prompt metadata parsing completed', {
-        operationId,
-        result
-    });
-    
-    return result;
-}
-
 function parseInstructionMetadata(filename: string, content: string, downloadUrl: string): InstructionMetadata {
     const operationId = generateOperationId();
     logDebug('PARSE_INSTRUCTION', 'Starting instruction metadata parsing', {
@@ -1392,42 +1263,6 @@ function parseSkillMetadata(folderName: string, content: string, downloadUrl: st
     };
 }
 
-async function addPromptToProject(prompt: PromptMetadata, workspaceFolder: string, repository: string, branch: string) {
-    try {
-        // Ensure prompts directory exists
-        const promptsDir = path.join(workspaceFolder, '.github', 'prompts');
-        if (!fs.existsSync(promptsDir)) {
-            fs.mkdirSync(promptsDir, { recursive: true });
-        }
-
-        // Download the prompt content
-        const content = prompt.localPath
-            ? fs.readFileSync(prompt.localPath, 'utf8')
-            : await downloadFile(prompt.downloadUrl);
-        
-        // Add attribution header
-        const attribution = createAttributionComment(repository, branch, `prompts/${prompt.filename}`);
-        const finalContent = attribution + content;
-
-        // Write to local file
-        const localPath = path.join(promptsDir, prompt.filename);
-        fs.writeFileSync(localPath, finalContent);
-
-        // Show success message with option to open the file
-        const action = await vscode.window.showInformationMessage(
-            `✅ Added prompt "${prompt.name}" to your project!`,
-            'Open File'
-        );
-
-        if (action === 'Open File') {
-            const document = await vscode.workspace.openTextDocument(localPath);
-            await vscode.window.showTextDocument(document);
-        }
-    } catch (error) {
-        vscode.window.showErrorMessage(`Failed to add prompt: ${error}`);
-    }
-}
-
 async function addInstructionToProject(instruction: InstructionMetadata, workspaceFolder: string, repository: string, branch: string) {
     try {
         // Ensure instructions directory exists
@@ -1501,58 +1336,6 @@ async function addSkillToProject(skill: SkillMetadata, workspaceFolder: string, 
         }
     } catch (error) {
         vscode.window.showErrorMessage(`Failed to add skill: ${error}`);
-    }
-}
-
-async function findAndAddPrompt() {
-    const operationId = generateOperationId();
-    logInfo('FIND_PROMPT', 'Starting find and add prompt operation', { operationId });
-    
-    const workspaceFolder = getWorkspaceFolder();
-    if (!workspaceFolder) {
-        logError('FIND_PROMPT', 'No workspace folder found', { operationId });
-        return;
-    }
-
-    const repoConfig = await selectRepository();
-    if (!repoConfig) {
-        logWarn('FIND_PROMPT', 'Repository selection cancelled', { operationId });
-        return;
-    }
-    const { repository, branch } = repoConfig;
-
-    let prompts: PromptMetadata[];
-    try {
-        prompts = await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: 'Loading available prompts...',
-            cancellable: false
-        }, () => getCachedPromptMetadata(repository, branch));
-    } catch (error) {
-        vscode.window.showErrorMessage(`Failed to load prompts: ${error}`);
-        return;
-    }
-
-    if (prompts.length === 0) {
-        vscode.window.showWarningMessage('No prompts found in the marketplace.');
-        return;
-    }
-
-    const quickPickItems = prompts.map(prompt => ({
-        label: prompt.name,
-        description: prompt.description,
-        detail: `Category: ${prompt.category || 'Not specified'} | Tags: ${prompt.tags?.join(', ') || 'None'}`,
-        prompt
-    }));
-
-    const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
-        matchOnDescription: true,
-        matchOnDetail: true,
-        placeHolder: 'Search and select a prompt to add to your project...'
-    });
-
-    if (selectedItem) {
-        await addPromptToProject(selectedItem.prompt, workspaceFolder, repository, branch);
     }
 }
 
@@ -1733,8 +1516,8 @@ interface PluginManifest {
     keywords?: string[];
     agents?: string[];
     skills?: string[];
-    prompts?: string[];
     instructions?: string[];
+    prompts?: string[];
 }
 
 interface PluginEntry {
@@ -1746,8 +1529,9 @@ interface PluginEntry {
 
 async function fetchPluginList(repository: string, branch: string): Promise<PluginEntry[]> {
     const cacheBase = getLocalCacheDir(repository);
-    const pluginsDir = await ensureResourceDir(cacheBase, 'plugins',
-        () => syncPluginsDir(repository, branch, path.join(cacheBase, 'plugins')));
+    await ensureRepoCached(cacheBase, repository, branch);
+    const pluginsDir = path.join(cacheBase, 'plugins');
+    if (!fs.existsSync(pluginsDir)) { return []; }
 
     const entries: PluginEntry[] = [];
     for (const folderName of fs.readdirSync(pluginsDir)) {
@@ -1780,9 +1564,9 @@ async function installPluginResources(
 
     const resourceMappings: Array<{ manifestKey: keyof PluginManifest; localDir: string }> = [
         { manifestKey: 'agents', localDir: 'agents' },
-        { manifestKey: 'prompts', localDir: 'prompts' },
         { manifestKey: 'instructions', localDir: 'instructions' },
         { manifestKey: 'skills', localDir: 'skills' },
+        { manifestKey: 'prompts', localDir: 'prompts' },
     ];
 
     for (const { manifestKey, localDir } of resourceMappings) {

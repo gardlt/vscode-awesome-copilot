@@ -225,7 +225,6 @@ describe('VS Code Integration Functions', () => {
         'awesome-copilot-sync.removeRepository',
         'awesome-copilot-sync.initializeStructure',
         'awesome-copilot-sync.findAndAddAgent',
-        'awesome-copilot-sync.findAndAddPrompt',
         'awesome-copilot-sync.findAndAddInstruction',
         'awesome-copilot-sync.findAndAddSkill',
         'awesome-copilot-sync.findAndAddPlugin',
