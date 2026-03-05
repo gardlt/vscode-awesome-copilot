@@ -17,7 +17,6 @@ This VS Code extension allows you to sync GitHub Copilot agents, prompts, instru
 - `Awesome Copilot: Initialize Project Structure` - Create the basic `.github/` directory structure
 
 ### Sync Commands
-- `Awesome Copilot: Sync All Resources` - Sync everything (agents, prompts, instructions, skills)
 - `Awesome Copilot: Sync Agents Only` - Sync only agent files (`.agent.md`)
 - `Awesome Copilot: Sync Prompts Only` - Sync only prompt files (`.prompt.md`)
 - `Awesome Copilot: Sync Instructions Only` - Sync only instruction files (`.instructions.md`)
@@ -51,7 +50,7 @@ The extension can be configured through VS Code settings:
 
 1. **Initialize Structure**: Run `Awesome Copilot: Initialize Project Structure` to create the basic directory structure
 2. **Configure Repository**: Run `Awesome Copilot: Configure Repository` to set your target repository
-3. **Sync Resources**: Run `Awesome Copilot: Sync All Resources` to pull all content from the target repository
+3. **Sync Resources**: Run individual sync commands (e.g., `Awesome Copilot: Sync Agents Only`) to pull content from the target repository
 
 ## Compatible Repository Structure
 

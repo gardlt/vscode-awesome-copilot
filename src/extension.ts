@@ -28,8 +28,201 @@ function generateOperationId(): string {
     return Math.random().toString(36).substr(2, 9);
 }
 
-function createAttributionComment(repository: string, branch: string, resourcePath: string): string {
-    return `# Synced from: https://github.com/${repository}/blob/${branch}/${resourcePath}\n`;
+// Cache system for repository data
+interface CacheEntry<T> {
+    data: T;
+    timestamp: number;
+    ttl: number;
+}
+
+interface RepositoryCache {
+    [key: string]: CacheEntry<any>;
+}
+
+class RepositoryDataCache {
+    private cache: RepositoryCache = {};
+    private readonly DEFAULT_TTL = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+
+    private generateCacheKey(repository: string, branch: string, resourceType: string): string {
+        return `${repository}:${branch}:${resourceType}`;
+    }
+
+    private isExpired(entry: CacheEntry<any>): boolean {
+        return Date.now() - entry.timestamp > entry.ttl;
+    }
+
+    get<T>(repository: string, branch: string, resourceType: string): T | null {
+        const key = this.generateCacheKey(repository, branch, resourceType);
+        const entry = this.cache[key];
+        
+        if (!entry) {
+            return null;
+        }
+        
+        if (this.isExpired(entry)) {
+            delete this.cache[key];
+            return null;
+        }
+        
+        logDebug('CACHE', 'Cache hit', { key, age: Date.now() - entry.timestamp });
+        return entry.data;
+    }
+
+    set<T>(repository: string, branch: string, resourceType: string, data: T, ttl?: number): void {
+        const key = this.generateCacheKey(repository, branch, resourceType);
+        const entry: CacheEntry<T> = {
+            data,
+            timestamp: Date.now(),
+            ttl: ttl || this.DEFAULT_TTL
+        };
+        
+        this.cache[key] = entry;
+        logDebug('CACHE', 'Data cached', { key, dataSize: JSON.stringify(data).length });
+    }
+
+    clear(): void {
+        this.cache = {};
+        logInfo('CACHE', 'Cache cleared');
+    }
+
+    getStats(): { entries: number; totalSize: number } {
+        const entries = Object.keys(this.cache).length;
+        const totalSize = JSON.stringify(this.cache).length;
+        return { entries, totalSize };
+    }
+}
+
+// Global cache instance
+const repositoryCache = new RepositoryDataCache();
+
+// Cached metadata fetching functions
+async function getCachedAgentMetadata(repository: string, branch: string): Promise<AgentMetadata[]> {
+    const cacheKey = 'parsed-agents';
+    const cached = repositoryCache.get<AgentMetadata[]>(repository, branch, cacheKey);
+    
+    if (cached) {
+        logInfo('METADATA_CACHE', 'Using cached agent metadata', { count: cached.length });
+        return cached;
+    }
+    
+    logInfo('METADATA_CACHE', 'Fetching and parsing agent metadata');
+    const agentFiles = await fetchDirectoryContents(repository, branch, 'agents');
+    const agents: AgentMetadata[] = [];
+    
+    for (const file of agentFiles) {
+        if (file.type === 'file' && file.name.endsWith('.agent.md')) {
+            try {
+                const content = await downloadFile(file.download_url!);
+                const metadata = parseAgentMetadata(file.name, content, file.download_url!);
+                agents.push(metadata);
+            } catch (error) {
+                logWarn('METADATA_CACHE', 'Failed to parse agent metadata', {
+                    fileName: file.name,
+                    error
+                });
+            }
+        }
+    }
+    
+    repositoryCache.set(repository, branch, cacheKey, agents);
+    logInfo('METADATA_CACHE', 'Agent metadata cached', { count: agents.length });
+    return agents;
+}
+
+async function getCachedPromptMetadata(repository: string, branch: string): Promise<PromptMetadata[]> {
+    const cacheKey = 'parsed-prompts';
+    const cached = repositoryCache.get<PromptMetadata[]>(repository, branch, cacheKey);
+    
+    if (cached) {
+        logInfo('METADATA_CACHE', 'Using cached prompt metadata', { count: cached.length });
+        return cached;
+    }
+    
+    logInfo('METADATA_CACHE', 'Fetching and parsing prompt metadata');
+    const promptFiles = await fetchDirectoryContents(repository, branch, 'prompts');
+    const prompts: PromptMetadata[] = [];
+    
+    for (const file of promptFiles) {
+        if (file.type === 'file' && file.name.endsWith('.prompt.md')) {
+            try {
+                const content = await downloadFile(file.download_url!);
+                const metadata = parsePromptMetadata(file.name, content, file.download_url!);
+                prompts.push(metadata);
+            } catch (error) {
+                logWarn('METADATA_CACHE', 'Failed to parse prompt metadata', {
+                    fileName: file.name,
+                    error
+                });
+            }
+        }
+    }
+    
+    repositoryCache.set(repository, branch, cacheKey, prompts);
+    logInfo('METADATA_CACHE', 'Prompt metadata cached', { count: prompts.length });
+    return prompts;
+}
+
+async function getCachedInstructionMetadata(repository: string, branch: string): Promise<InstructionMetadata[]> {
+    const cacheKey = 'parsed-instructions';
+    const cached = repositoryCache.get<InstructionMetadata[]>(repository, branch, cacheKey);
+    
+    if (cached) {
+        logInfo('METADATA_CACHE', 'Using cached instruction metadata', { count: cached.length });
+        return cached;
+    }
+    
+    logInfo('METADATA_CACHE', 'Fetching and parsing instruction metadata');
+    const instructionFiles = await fetchDirectoryContents(repository, branch, 'instructions');
+    const instructions: InstructionMetadata[] = [];
+    
+    for (const file of instructionFiles) {
+        if (file.type === 'file' && file.name.endsWith('.instructions.md')) {
+            try {
+                const content = await downloadFile(file.download_url!);
+                const metadata = parseInstructionMetadata(file.name, content, file.download_url!);
+                instructions.push(metadata);
+            } catch (error) {
+                logWarn('METADATA_CACHE', 'Failed to parse instruction metadata', {
+                    fileName: file.name,
+                    error
+                });
+            }
+        }
+    }
+    
+    repositoryCache.set(repository, branch, cacheKey, instructions);
+    logInfo('METADATA_CACHE', 'Instruction metadata cached', { count: instructions.length });
+    return instructions;
+}
+
+async function getCachedSkillMetadata(repository: string, branch: string): Promise<SkillMetadata[]> {
+    const cacheKey = 'parsed-skills';
+    const cached = repositoryCache.get<SkillMetadata[]>(repository, branch, cacheKey);
+
+    if (cached) {
+        logInfo('METADATA_CACHE', 'Using cached skill metadata', { count: cached.length });
+        return cached;
+    }
+
+    logInfo('METADATA_CACHE', 'Fetching and parsing skill metadata');
+    const skillDirs = await fetchDirectoryContents(repository, branch, 'skills');
+    const skills: SkillMetadata[] = [];
+
+    for (const dir of skillDirs) {
+        if (dir.type !== 'dir') { continue; }
+        try {
+            const skillMdUrl = `https://raw.githubusercontent.com/${repository}/${branch}/skills/${dir.name}/SKILL.md`;
+            const content = await downloadFile(skillMdUrl);
+            const metadata = parseSkillMetadata(dir.name, content, skillMdUrl);
+            skills.push(metadata);
+        } catch (error) {
+            logWarn('METADATA_CACHE', 'Failed to parse skill metadata', { folderName: dir.name, error });
+        }
+    }
+
+    repositoryCache.set(repository, branch, cacheKey, skills);
+    logInfo('METADATA_CACHE', 'Skill metadata cached', { count: skills.length });
+    return skills;
 }
 
 interface GitHubFile {
@@ -81,6 +274,12 @@ interface SyncStatus {
     errors: string[];
 }
 
+interface RepositoryConfig {
+    label: string;
+    repository: string;
+    branch: string;
+}
+
 export function activate(context: vscode.ExtensionContext) {
     logInfo('EXTENSION', 'Awesome Copilot Sync extension is activating...');
     
@@ -96,7 +295,7 @@ export function activate(context: vscode.ExtensionContext) {
     // Register commands
     const commands = [
         vscode.commands.registerCommand('awesome-copilot-sync.configure', configureRepository),
-        vscode.commands.registerCommand('awesome-copilot-sync.sync', syncAll),
+        vscode.commands.registerCommand('awesome-copilot-sync.removeRepository', removeRepository),
         vscode.commands.registerCommand('awesome-copilot-sync.syncAgents', () => syncResourceType('agents')),
         vscode.commands.registerCommand('awesome-copilot-sync.syncPrompts', () => syncResourceType('prompts')),
         vscode.commands.registerCommand('awesome-copilot-sync.syncInstructions', () => syncResourceType('instructions')),
@@ -105,7 +304,10 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddAgent', findAndAddAgent),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddPrompt', findAndAddPrompt),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddInstruction', findAndAddInstruction),
-        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddSkill', findAndAddSkill)
+        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddSkill', findAndAddSkill),
+        vscode.commands.registerCommand('awesome-copilot-sync.findAndAddPlugin', findAndAddPlugin),
+        vscode.commands.registerCommand('awesome-copilot-sync.clearCache', clearRepositoryCache),
+        vscode.commands.registerCommand('awesome-copilot-sync.showCacheStats', showCacheStats)
     ];
 
     commands.forEach(command => context.subscriptions.push(command));
@@ -113,11 +315,13 @@ export function activate(context: vscode.ExtensionContext) {
     logInfo('EXTENSION', 'Registered commands', {
         commandCount: commands.length,
         commands: [
-            'configure', 'sync', 'syncAgents', 'syncPrompts', 'syncInstructions', 
-            'syncSkills', 'initializeStructure', 'findAndAddAgent', 'findAndAddPrompt', 
-            'findAndAddInstruction', 'findAndAddSkill'
+            'configure', 'removeRepository', 'syncAgents', 'syncPrompts', 'syncInstructions',
+            'syncSkills', 'initializeStructure', 'findAndAddAgent', 'findAndAddPrompt',
+            'findAndAddInstruction', 'findAndAddSkill', 'findAndAddPlugin', 'clearCache', 'showCacheStats'
         ]
     });
+
+    migrateRepositorySettings().catch(err => logError('EXTENSION', 'Settings migration failed', err));
 
     // Auto sync if enabled
     const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
@@ -126,8 +330,7 @@ export function activate(context: vscode.ExtensionContext) {
     logInfo('EXTENSION', 'Checking auto-sync configuration', { autoSync });
     
     if (autoSync) {
-        logInfo('EXTENSION', 'Auto-sync is enabled, starting sync...');
-        syncAll();
+        logInfo('EXTENSION', 'Auto-sync is enabled, but sync-all is no longer supported');
     } else {
         logInfo('EXTENSION', 'Auto-sync is disabled');
     }
@@ -138,20 +341,13 @@ export function activate(context: vscode.ExtensionContext) {
 async function configureRepository() {
     const operationId = generateOperationId();
     logInfo('CONFIG', 'Starting repository configuration', { operationId });
-    
+
     const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
-    const currentRepo = config.get<string>('targetRepository') || 'github/awesome-copilot';
-    const currentBranch = config.get<string>('branch') || 'main';
-    
-    logDebug('CONFIG', 'Current configuration', {
-        operationId,
-        currentRepo,
-        currentBranch
-    });
-    
-    const repository = await vscode.window.showInputBox({
+    const repos = config.get<RepositoryConfig[]>('repositories') ?? [];
+
+    const repoInput = await vscode.window.showInputBox({
         prompt: 'Enter the repository to sync from (format: owner/repo)',
-        value: currentRepo,
+        placeHolder: 'github/awesome-copilot',
         validateInput: (value) => {
             if (!value || !value.includes('/')) {
                 return 'Please enter a valid repository format (owner/repo)';
@@ -159,41 +355,138 @@ async function configureRepository() {
             return null;
         }
     });
-
-    if (repository) {
-        const branch = await vscode.window.showInputBox({
-            prompt: 'Enter the branch to sync from',
-            value: config.get<string>('branch') || 'main'
-        });
-
-        if (branch) {
-            try {
-                logInfo('CONFIG', 'Updating configuration', { 
-                    operationId,
-                    repository, 
-                    branch 
-                });
-                
-                await config.update('targetRepository', repository, vscode.ConfigurationTarget.Workspace);
-                await config.update('branch', branch, vscode.ConfigurationTarget.Workspace);
-                
-                logInfo('CONFIG', 'Configuration updated successfully', {
-                    operationId,
-                    repository,
-                    branch
-                });
-                
-                vscode.window.showInformationMessage(`Configuration updated! Repository: ${repository}, Branch: ${branch}`);
-            } catch (error) {
-                logError('CONFIG', 'Failed to update configuration', error);
-                vscode.window.showErrorMessage(`Failed to update configuration: ${error}`);
-            }
-        } else {
-            logWarn('CONFIG', 'Configuration cancelled - no branch specified', { operationId });
-        }
-    } else {
+    if (!repoInput) {
         logWarn('CONFIG', 'Configuration cancelled - no repository specified', { operationId });
+        return;
     }
+
+    const existingEntry = repos.find(r => r.repository === repoInput);
+
+    const branchInput = await vscode.window.showInputBox({
+        prompt: 'Enter the branch to sync from',
+        value: existingEntry?.branch ?? 'main'
+    });
+    if (!branchInput) {
+        logWarn('CONFIG', 'Configuration cancelled - no branch specified', { operationId });
+        return;
+    }
+
+    const labelInput = await vscode.window.showInputBox({
+        prompt: 'Enter a friendly label for this repository (optional)',
+        value: existingEntry?.label ?? repoInput,
+        placeHolder: repoInput
+    });
+    const label = labelInput?.trim() || repoInput;
+
+    try {
+        let updatedRepos: RepositoryConfig[];
+        if (existingEntry) {
+            updatedRepos = repos.map(r =>
+                r.repository === repoInput ? { label, repository: repoInput, branch: branchInput } : r
+            );
+            vscode.window.showInformationMessage(`Updated repository: ${label} (${repoInput}@${branchInput})`);
+            logInfo('CONFIG', 'Repository entry updated', { operationId, repository: repoInput, branch: branchInput });
+        } else {
+            updatedRepos = [...repos, { label, repository: repoInput, branch: branchInput }];
+            vscode.window.showInformationMessage(`Added repository: ${label} (${repoInput}@${branchInput})`);
+            logInfo('CONFIG', 'Repository entry added', { operationId, repository: repoInput, branch: branchInput });
+        }
+        await config.update('repositories', updatedRepos, vscode.ConfigurationTarget.Workspace);
+    } catch (error) {
+        logError('CONFIG', 'Failed to update configuration', error);
+        vscode.window.showErrorMessage(`Failed to update configuration: ${error}`);
+    }
+}
+
+async function removeRepository() {
+    const operationId = generateOperationId();
+    logInfo('REMOVE_REPO', 'Starting remove repository operation', { operationId });
+
+    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
+    const repos = config.get<RepositoryConfig[]>('repositories') ?? [];
+
+    if (repos.length === 0) {
+        vscode.window.showInformationMessage('No repositories configured to remove.');
+        return;
+    }
+
+    const items = repos.map(r => ({
+        label: r.label || r.repository,
+        description: r.label && r.label !== r.repository ? r.repository : undefined,
+        detail: `Branch: ${r.branch || 'main'}`,
+        repo: r
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a repository to remove...'
+    });
+    if (!selected) {
+        logWarn('REMOVE_REPO', 'Remove cancelled by user', { operationId });
+        return;
+    }
+
+    const updatedRepos = repos.filter(r => r.repository !== selected.repo.repository);
+    await config.update('repositories', updatedRepos, vscode.ConfigurationTarget.Workspace);
+    logInfo('REMOVE_REPO', 'Repository removed', { operationId, repository: selected.repo.repository });
+    vscode.window.showInformationMessage(`Removed repository: ${selected.label}`);
+}
+
+async function migrateRepositorySettings(): Promise<void> {
+    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
+    const repos = config.get<RepositoryConfig[]>('repositories') ?? [];
+    if (repos.length > 0) {
+        return;
+    }
+    const inspected = config.inspect<string>('targetRepository');
+    const wasExplicitlySet = inspected?.workspaceValue !== undefined || inspected?.globalValue !== undefined;
+    if (!wasExplicitlySet) {
+        return;
+    }
+    const legacyRepo = config.get<string>('targetRepository')!;
+    const legacyBranch = config.get<string>('branch') || 'main';
+    const migrated: RepositoryConfig[] = [{ label: legacyRepo, repository: legacyRepo, branch: legacyBranch }];
+    await config.update('repositories', migrated, vscode.ConfigurationTarget.Workspace);
+    logInfo('MIGRATE', 'Migrated legacy targetRepository to repositories array', { repository: legacyRepo, branch: legacyBranch });
+    vscode.window.showInformationMessage(
+        `Awesome Copilot: Migrated "${legacyRepo}" to the new multi-repo settings. Use "Configure Repository" to add more.`
+    );
+}
+
+async function selectRepository(): Promise<{ repository: string; branch: string } | undefined> {
+    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
+    const repos = config.get<RepositoryConfig[]>('repositories') ?? [];
+
+    if (repos.length === 0) {
+        const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
+        const branch = config.get<string>('branch') || 'main';
+        logInfo('SELECT_REPO', 'Falling back to legacy single-repo settings', { repository, branch });
+        return { repository, branch };
+    }
+
+    if (repos.length === 1) {
+        const { repository, branch } = repos[0];
+        logInfo('SELECT_REPO', 'Single repository configured, using directly', { repository, branch });
+        return { repository, branch: branch || 'main' };
+    }
+
+    const items = repos.map(r => ({
+        label: r.label || r.repository,
+        description: r.label && r.label !== r.repository ? r.repository : undefined,
+        detail: `Branch: ${r.branch || 'main'}`,
+        repo: r
+    }));
+
+    const selected = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select a repository to sync from...',
+        matchOnDescription: true
+    });
+    if (!selected) {
+        logWarn('SELECT_REPO', 'User cancelled repository selection');
+        return undefined;
+    }
+
+    logInfo('SELECT_REPO', 'User selected repository', { repository: selected.repo.repository });
+    return { repository: selected.repo.repository, branch: selected.repo.branch || 'main' };
 }
 
 async function initializeStructure() {
@@ -311,101 +604,23 @@ This file provides instructions to GitHub Copilot for working with this reposito
     }
 }
 
-async function syncAll() {
-    const operationId = generateOperationId();
-    logInfo('SYNC_ALL', 'Starting complete sync operation', { operationId });
-    
-    const workspaceFolder = getWorkspaceFolder();
-    if (!workspaceFolder) {
-        logError('SYNC_ALL', 'No workspace folder found during sync', { operationId });
-        return;
-    }
-    
-    logDebug('SYNC_ALL', 'Workspace folder found', { 
-        operationId,
-        workspaceFolder 
-    });
-
-    const progress = await vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: "Syncing Copilot Resources",
-        cancellable: true
-    }, async (progress, token) => {
-        const resourceTypes = ['agents', 'prompts', 'instructions', 'skills'];
-        let totalFiles = 0;
-        let processedFiles = 0;
-        
-        logDebug('SYNC_ALL', 'Starting progress tracking', {
-            operationId,
-            resourceTypes,
-            totalResourceTypes: resourceTypes.length
-        });
-
-        for (let i = 0; i < resourceTypes.length; i++) {
-            const resourceType = resourceTypes[i];
-            
-            if (token.isCancellationRequested) {
-                logWarn('SYNC_ALL', 'Sync operation cancelled by user', { 
-                    operationId,
-                    currentResourceType: resourceType,
-                    progress: `${i}/${resourceTypes.length}`
-                });
-                break;
-            }
-
-            logInfo('SYNC_ALL', 'Starting resource type sync', {
-                operationId,
-                resourceType,
-                progress: `${i + 1}/${resourceTypes.length}`
-            });
-
-            progress.report({ 
-                message: `Syncing ${resourceType}...`,
-                increment: (i / resourceTypes.length) * 100
-            });
-
-            const result = await syncResourceTypeInternal(resourceType);
-            totalFiles += result.files.length;
-            processedFiles = totalFiles;
-            
-            logInfo('SYNC_ALL', 'Resource type sync completed', {
-                operationId,
-                resourceType,
-                filesProcessed: result.files.length,
-                success: result.success,
-                errors: result.errors
-            });
-        }
-
-        return { totalFiles, processedFiles };
-    });
-
-    if (progress) {
-        logInfo('SYNC_ALL', 'Complete sync operation finished', {
-            operationId,
-            totalFiles: progress.totalFiles,
-            processedFiles: progress.processedFiles
-        });
-        vscode.window.showInformationMessage(`Sync completed! Processed ${progress.totalFiles} files.`);
-    } else {
-        logWarn('SYNC_ALL', 'Sync operation completed without progress data', { operationId });
-    }
-}
-
 async function syncResourceType(resourceType: 'agents' | 'prompts' | 'instructions' | 'skills') {
     const operationId = generateOperationId();
-    logInfo('SYNC_RESOURCE', 'Starting resource type sync', { 
-        operationId,
-        resourceType 
-    });
-    
+    logInfo('SYNC_RESOURCE', 'Starting resource type sync', { operationId, resourceType });
+
+    const repoConfig = await selectRepository();
+    if (!repoConfig) {
+        logWarn('SYNC_RESOURCE', 'Repository selection cancelled', { operationId });
+        return;
+    }
+
     return vscode.window.withProgress({
         location: vscode.ProgressLocation.Notification,
-        title: `Syncing ${resourceType}`,
+        title: `Syncing ${resourceType} from ${repoConfig.repository}`,
         cancellable: false
     }, async () => {
-        const result = await syncResourceTypeInternal(resourceType);
-        
+        const result = await syncResourceTypeInternal(resourceType, repoConfig.repository, repoConfig.branch);
+
         logInfo('SYNC_RESOURCE', 'Resource type sync completed', {
             operationId,
             resourceType,
@@ -413,7 +628,7 @@ async function syncResourceType(resourceType: 'agents' | 'prompts' | 'instructio
             filesCount: result.files.length,
             errorsCount: result.errors.length
         });
-        
+
         if (result.success) {
             vscode.window.showInformationMessage(
                 `${resourceType} sync completed! ${result.files.length} files processed.`
@@ -423,28 +638,24 @@ async function syncResourceType(resourceType: 'agents' | 'prompts' | 'instructio
                 `${resourceType} sync failed: ${result.errors.join(', ')}`
             );
         }
-        
+
         return result;
     });
 }
 
-async function syncResourceTypeInternal(resourceType: string): Promise<SyncStatus> {
+async function syncResourceTypeInternal(resourceType: string, repository: string, branch: string): Promise<SyncStatus> {
     const operationId = generateOperationId();
-    logInfo('SYNC_INTERNAL', 'Starting internal resource sync', { 
+    logInfo('SYNC_INTERNAL', 'Starting internal resource sync', {
         operationId,
-        resourceType 
+        resourceType
     });
-    
+
     const workspaceFolder = getWorkspaceFolder();
     if (!workspaceFolder) {
         logError('SYNC_INTERNAL', 'No workspace folder found', { operationId, resourceType });
         return { success: false, files: [], errors: ['No workspace folder found'] };
     }
 
-    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
-    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
-    const branch = config.get<string>('branch') || 'main';
-    
     logDebug('SYNC_INTERNAL', 'Sync configuration', {
         operationId,
         resourceType,
@@ -551,6 +762,20 @@ function getWorkspaceFolder(): string | undefined {
 
 async function fetchDirectoryContents(repository: string, branch: string, path: string): Promise<GitHubFile[]> {
     const operationId = generateOperationId();
+    
+    // Check cache first
+    const cached = repositoryCache.get<GitHubFile[]>(repository, branch, path);
+    if (cached) {
+        logInfo('API', 'Using cached directory contents', {
+            operationId,
+            repository,
+            branch,
+            path,
+            fileCount: cached.length
+        });
+        return cached;
+    }
+    
     const url = `https://api.github.com/repos/${repository}/contents/${path}?ref=${branch}`;
     
     logInfo('API', 'Fetching directory contents from GitHub API', {
@@ -608,6 +833,9 @@ async function fetchDirectoryContents(repository: string, branch: string, path: 
                             fileCount: files.length,
                             files: files.map(f => ({ name: f.name, type: f.type }))
                         });
+                        
+                        // Cache the successful response
+                        repositoryCache.set(repository, branch, path, files);
                         resolve(files);
                     } else if (res.statusCode === 404) {
                         // Directory doesn't exist, return empty array
@@ -617,7 +845,11 @@ async function fetchDirectoryContents(repository: string, branch: string, path: 
                             branch,
                             path
                         });
-                        resolve([]);
+                        
+                        // Cache the empty result with shorter TTL (1 hour)
+                        const emptyResult: GitHubFile[] = [];
+                        repositoryCache.set(repository, branch, path, emptyResult, 60 * 60 * 1000);
+                        resolve(emptyResult);
                     } else {
                         const errorMsg = `HTTP ${res.statusCode}: ${data}`;
                         logError('API', 'API request failed', {
@@ -720,10 +952,13 @@ async function findAndAddAgent() {
         return;
     }
 
-    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
-    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
-    const branch = config.get<string>('branch') || 'main';
-    
+    const repoConfig = await selectRepository();
+    if (!repoConfig) {
+        logWarn('FIND_AGENT', 'Repository selection cancelled', { operationId });
+        return;
+    }
+    const { repository, branch } = repoConfig;
+
     logDebug('FIND_AGENT', 'Configuration loaded', {
         operationId,
         repository,
@@ -731,77 +966,46 @@ async function findAndAddAgent() {
         workspaceFolder
     });
 
-    return vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: "Loading available agents...",
-        cancellable: false
-    }, async () => {
-        try {
-            // Fetch available agents
-            const agentFiles = await fetchDirectoryContents(repository, branch, 'agents');
-            const agents: AgentMetadata[] = [];
+    let agents: AgentMetadata[];
+    try {
+        agents = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Loading available agents...',
+            cancellable: false
+        }, () => getCachedAgentMetadata(repository, branch));
+    } catch (error) {
+        logError('FIND_AGENT', 'Failed to load agents', { operationId, error });
+        vscode.window.showErrorMessage(`Failed to load agents: ${error}`);
+        return;
+    }
 
-            // Parse agent metadata from each file
-            for (const file of agentFiles) {
-                if (file.type === 'file' && file.name.endsWith('.agent.md')) {
-                    try {
-                        const content = await downloadFile(file.download_url!);
-                        const metadata = parseAgentMetadata(file.name, content, file.download_url!);
-                        agents.push(metadata);
-                    } catch (error) {
-                        logWarn('FIND_AGENT', 'Failed to parse agent metadata', {
-                            operationId,
-                            fileName: file.name,
-                            error
-                        });
-                    }
-                }
-            }
+    if (agents.length === 0) {
+        logWarn('FIND_AGENT', 'No agents found in repository', { operationId, repository, branch });
+        vscode.window.showWarningMessage('No agents found in the target repository.');
+        return;
+    }
 
-            if (agents.length === 0) {
-                logWarn('FIND_AGENT', 'No agents found in repository', {
-                    operationId,
-                    repository,
-                    branch
-                });
-                vscode.window.showWarningMessage('No agents found in the target repository.');
-                return;
-            }
-            
-            logInfo('FIND_AGENT', 'Agents loaded successfully', {
-                operationId,
-                agentCount: agents.length,
-                agents: agents.map(a => ({ name: a.name, model: a.model }))
-            });
+    logInfo('FIND_AGENT', 'Agents loaded successfully', { operationId, agentCount: agents.length });
 
-            // Show agent picker
-            const quickPickItems = agents.map(agent => ({
-                label: agent.name,
-                description: agent.description,
-                detail: `Model: ${agent.model || 'Not specified'} | Tools: ${agent.tools?.join(', ') || 'None'}`,
-                agent
-            }));
+    const quickPickItems = agents.map(agent => ({
+        label: agent.name,
+        description: agent.description,
+        detail: `Model: ${agent.model || 'Not specified'} | Tools: ${agent.tools?.join(', ') || 'None'}`,
+        agent
+    }));
 
-            const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
-                matchOnDescription: true,
-                matchOnDetail: true,
-                placeHolder: 'Search and select an agent to add to your project...'
-            });
-
-            if (selectedItem) {
-                logInfo('FIND_AGENT', 'Agent selected by user', {
-                    operationId,
-                    selectedAgent: selectedItem.agent.name
-                });
-                await addAgentToProject(selectedItem.agent, workspaceFolder, repository, branch);
-            } else {
-                logWarn('FIND_AGENT', 'No agent selected by user', { operationId });
-            }
-        } catch (error) {
-            logError('FIND_AGENT', 'Failed to load agents', { operationId, error });
-            vscode.window.showErrorMessage(`Failed to load agents: ${error}`);
-        }
+    const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: 'Search and select an agent to add to your project...'
     });
+
+    if (selectedItem) {
+        logInfo('FIND_AGENT', 'Agent selected by user', { operationId, selectedAgent: selectedItem.agent.name });
+        await addAgentToProject(selectedItem.agent, workspaceFolder, repository, branch);
+    } else {
+        logWarn('FIND_AGENT', 'No agent selected by user', { operationId });
+    }
 }
 
 function parseAgentMetadata(filename: string, content: string, downloadUrl: string): AgentMetadata {
@@ -1113,8 +1317,8 @@ function parseInstructionMetadata(filename: string, content: string, downloadUrl
     return result;
 }
 
-function parseSkillMetadata(filename: string, content: string, downloadUrl: string): SkillMetadata {
-    const name = filename.replace('.skill.md', '').replace(/-/g, ' ')
+function parseSkillMetadata(folderName: string, content: string, downloadUrl: string): SkillMetadata {
+    const name = folderName.replace(/-/g, ' ')
         .split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
     
     // Extract frontmatter
@@ -1147,7 +1351,7 @@ function parseSkillMetadata(filename: string, content: string, downloadUrl: stri
 
     return {
         name,
-        filename,
+        filename: folderName,
         description,
         domain,
         complexity,
@@ -1225,31 +1429,32 @@ async function addInstructionToProject(instruction: InstructionMetadata, workspa
 
 async function addSkillToProject(skill: SkillMetadata, workspaceFolder: string, repository: string, branch: string) {
     try {
-        // Ensure skills directory exists
-        const skillsDir = path.join(workspaceFolder, '.github', 'skills');
-        if (!fs.existsSync(skillsDir)) {
-            fs.mkdirSync(skillsDir, { recursive: true });
+        // Create the skill's own subfolder under .github/skills/
+        const skillDir = path.join(workspaceFolder, '.github', 'skills', skill.filename);
+        if (!fs.existsSync(skillDir)) {
+            fs.mkdirSync(skillDir, { recursive: true });
         }
 
-        // Download the skill content
-        const content = await downloadFile(skill.downloadUrl);
-        
-        // Add attribution header
-        const attribution = createAttributionComment(repository, branch, `skills/${skill.filename}`);
-        const finalContent = attribution + content;
+        // Fetch all files inside the skill folder from the repository
+        const files = await fetchDirectoryContents(repository, branch, `skills/${skill.filename}`);
+        let firstFilePath: string | undefined;
 
-        // Write to local file
-        const localPath = path.join(skillsDir, skill.filename);
-        fs.writeFileSync(localPath, finalContent);
+        for (const file of files) {
+            if (file.type !== 'file' || !file.download_url) { continue; }
+            const content = await downloadFile(file.download_url);
+            const attribution = createAttributionComment(repository, branch, `skills/${skill.filename}/${file.name}`);
+            const localPath = path.join(skillDir, file.name);
+            fs.writeFileSync(localPath, attribution + content);
+            if (!firstFilePath) { firstFilePath = localPath; }
+        }
 
-        // Show success message with option to open the file
         const action = await vscode.window.showInformationMessage(
             `✅ Added skill "${skill.name}" to your project!`,
             'Open File'
         );
 
-        if (action === 'Open File') {
-            const document = await vscode.workspace.openTextDocument(localPath);
+        if (action === 'Open File' && firstFilePath) {
+            const document = await vscode.workspace.openTextDocument(firstFilePath);
             await vscode.window.showTextDocument(document);
         }
     } catch (error) {
@@ -1267,63 +1472,46 @@ async function findAndAddPrompt() {
         return;
     }
 
-    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
-    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
-    const branch = config.get<string>('branch') || 'main';
+    const repoConfig = await selectRepository();
+    if (!repoConfig) {
+        logWarn('FIND_PROMPT', 'Repository selection cancelled', { operationId });
+        return;
+    }
+    const { repository, branch } = repoConfig;
 
-    return vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: "Loading available prompts...",
-        cancellable: false
-    }, async () => {
-        try {
-            // Fetch available prompts
-            const promptFiles = await fetchDirectoryContents(repository, branch, 'prompts');
-            const prompts: PromptMetadata[] = [];
+    let prompts: PromptMetadata[];
+    try {
+        prompts = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Loading available prompts...',
+            cancellable: false
+        }, () => getCachedPromptMetadata(repository, branch));
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to load prompts: ${error}`);
+        return;
+    }
 
-            // Parse prompt metadata from each file
-            for (const file of promptFiles) {
-                if (file.type === 'file' && file.name.endsWith('.prompt.md')) {
-                    try {
-                        const content = await downloadFile(file.download_url!);
-                        const metadata = parsePromptMetadata(file.name, content, file.download_url!);
-                        prompts.push(metadata);
-                    } catch (error) {
-                        logWarn('FIND_PROMPT', 'Failed to parse prompt metadata', {
-                            operationId,
-                            fileName: file.name,
-                            error
-                        });
-                    }
-                }
-            }
+    if (prompts.length === 0) {
+        vscode.window.showWarningMessage('No prompts found in the target repository.');
+        return;
+    }
 
-            if (prompts.length === 0) {
-                vscode.window.showWarningMessage('No prompts found in the target repository.');
-                return;
-            }
+    const quickPickItems = prompts.map(prompt => ({
+        label: prompt.name,
+        description: prompt.description,
+        detail: `Category: ${prompt.category || 'Not specified'} | Tags: ${prompt.tags?.join(', ') || 'None'}`,
+        prompt
+    }));
 
-            // Show prompt picker
-            const quickPickItems = prompts.map(prompt => ({
-                label: prompt.name,
-                description: prompt.description,
-                detail: `Category: ${prompt.category || 'Not specified'} | Tags: ${prompt.tags?.join(', ') || 'None'}`,
-                prompt
-            }));
-
-            const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
-                matchOnDescription: true,
-                matchOnDetail: true,
-                placeHolder: 'Search and select a prompt to add to your project...'
-            });
-
-            if (selectedItem) {
-                await addPromptToProject(selectedItem.prompt, workspaceFolder, repository, branch);
-            }
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load prompts: ${error}`);
-        }
+    const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: 'Search and select a prompt to add to your project...'
     });
+
+    if (selectedItem) {
+        await addPromptToProject(selectedItem.prompt, workspaceFolder, repository, branch);
+    }
 }
 
 async function findAndAddInstruction() {
@@ -1336,63 +1524,46 @@ async function findAndAddInstruction() {
         return;
     }
 
-    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
-    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
-    const branch = config.get<string>('branch') || 'main';
+    const repoConfig = await selectRepository();
+    if (!repoConfig) {
+        logWarn('FIND_INSTRUCTION', 'Repository selection cancelled', { operationId });
+        return;
+    }
+    const { repository, branch } = repoConfig;
 
-    return vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: "Loading available instructions...",
-        cancellable: false
-    }, async () => {
-        try {
-            // Fetch available instructions
-            const instructionFiles = await fetchDirectoryContents(repository, branch, 'instructions');
-            const instructions: InstructionMetadata[] = [];
+    let instructions: InstructionMetadata[];
+    try {
+        instructions = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Loading available instructions...',
+            cancellable: false
+        }, () => getCachedInstructionMetadata(repository, branch));
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to load instructions: ${error}`);
+        return;
+    }
 
-            // Parse instruction metadata from each file
-            for (const file of instructionFiles) {
-                if (file.type === 'file' && file.name.endsWith('.instructions.md')) {
-                    try {
-                        const content = await downloadFile(file.download_url!);
-                        const metadata = parseInstructionMetadata(file.name, content, file.download_url!);
-                        instructions.push(metadata);
-                    } catch (error) {
-                        logWarn('FIND_INSTRUCTION', 'Failed to parse instruction metadata', {
-                            operationId,
-                            fileName: file.name,
-                            error
-                        });
-                    }
-                }
-            }
+    if (instructions.length === 0) {
+        vscode.window.showWarningMessage('No instructions found in the target repository.');
+        return;
+    }
 
-            if (instructions.length === 0) {
-                vscode.window.showWarningMessage('No instructions found in the target repository.');
-                return;
-            }
+    const quickPickItems = instructions.map(instruction => ({
+        label: instruction.name,
+        description: instruction.description,
+        detail: `Scope: ${instruction.scope || 'Not specified'} | Language: ${instruction.language || 'All'}`,
+        instruction
+    }));
 
-            // Show instruction picker
-            const quickPickItems = instructions.map(instruction => ({
-                label: instruction.name,
-                description: instruction.description,
-                detail: `Scope: ${instruction.scope || 'Not specified'} | Language: ${instruction.language || 'All'}`,
-                instruction
-            }));
-
-            const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
-                matchOnDescription: true,
-                matchOnDetail: true,
-                placeHolder: 'Search and select an instruction to add to your project...'
-            });
-
-            if (selectedItem) {
-                await addInstructionToProject(selectedItem.instruction, workspaceFolder, repository, branch);
-            }
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load instructions: ${error}`);
-        }
+    const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: 'Search and select an instruction to add to your project...'
     });
+
+    if (selectedItem) {
+        await addInstructionToProject(selectedItem.instruction, workspaceFolder, repository, branch);
+    }
 }
 
 async function findAndAddSkill() {
@@ -1405,65 +1576,267 @@ async function findAndAddSkill() {
         return;
     }
 
-    const config = vscode.workspace.getConfiguration('awesome-copilot-sync');
-    const repository = config.get<string>('targetRepository') || 'github/awesome-copilot';
-    const branch = config.get<string>('branch') || 'main';
+    const repoConfig = await selectRepository();
+    if (!repoConfig) {
+        logWarn('FIND_SKILL', 'Repository selection cancelled', { operationId });
+        return;
+    }
+    const { repository, branch } = repoConfig;
 
-    return vscode.window.withProgress({
-        location: vscode.ProgressLocation.Notification,
-        title: "Loading available skills...",
-        cancellable: false
-    }, async () => {
-        try {
-            // Fetch available skills
-            const skillFiles = await fetchDirectoryContents(repository, branch, 'skills');
-            const skills: SkillMetadata[] = [];
+    let skills: SkillMetadata[];
+    try {
+        skills = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Loading available skills...',
+            cancellable: false
+        }, () => getCachedSkillMetadata(repository, branch));
+    } catch (error) {
+        vscode.window.showErrorMessage(`Failed to load skills: ${error}`);
+        return;
+    }
 
-            // Parse skill metadata from each file
-            for (const file of skillFiles) {
-                if (file.type === 'file' && file.name.endsWith('.skill.md')) {
-                    try {
-                        const content = await downloadFile(file.download_url!);
-                        const metadata = parseSkillMetadata(file.name, content, file.download_url!);
-                        skills.push(metadata);
-                    } catch (error) {
-                        logWarn('FIND_SKILL', 'Failed to parse skill metadata', {
-                            operationId,
-                            fileName: file.name,
-                            error
-                        });
-                    }
-                }
-            }
+    if (skills.length === 0) {
+        vscode.window.showWarningMessage('No skills found in the target repository.');
+        return;
+    }
 
-            if (skills.length === 0) {
-                vscode.window.showWarningMessage('No skills found in the target repository.');
-                return;
-            }
+    const quickPickItems = skills.map(skill => ({
+        label: skill.name,
+        description: skill.description,
+        detail: `Domain: ${skill.domain || 'Not specified'} | Complexity: ${skill.complexity || 'Not specified'}`,
+        skill
+    }));
 
-            // Show skill picker
-            const quickPickItems = skills.map(skill => ({
-                label: skill.name,
-                description: skill.description,
-                detail: `Domain: ${skill.domain || 'Not specified'} | Complexity: ${skill.complexity || 'Not specified'}`,
-                skill
-            }));
-
-            const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
-                matchOnDescription: true,
-                matchOnDetail: true,
-                placeHolder: 'Search and select a skill to add to your project...'
-            });
-
-            if (selectedItem) {
-                await addSkillToProject(selectedItem.skill, workspaceFolder, repository, branch);
-            }
-        } catch (error) {
-            vscode.window.showErrorMessage(`Failed to load skills: ${error}`);
-        }
+    const selectedItem = await vscode.window.showQuickPick(quickPickItems, {
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: 'Search and select a skill to add to your project...'
     });
+
+    if (selectedItem) {
+        await addSkillToProject(selectedItem.skill, workspaceFolder, repository, branch);
+    }
 }
 
 export function deactivate() {
     logInfo('EXTENSION', 'Extension is being deactivated');
+    repositoryCache.clear();
+}
+
+// Cache management functions
+async function clearRepositoryCache() {
+    const operationId = generateOperationId();
+    logInfo('CACHE_MGMT', 'Clearing repository cache', { operationId });
+    
+    const stats = repositoryCache.getStats();
+    repositoryCache.clear();
+    
+    logInfo('CACHE_MGMT', 'Repository cache cleared', { 
+        operationId,
+        previousStats: stats 
+    });
+    
+    vscode.window.showInformationMessage(
+        `✅ Repository cache cleared! (${stats.entries} entries freed)`
+    );
+}
+
+async function showCacheStats() {
+    const operationId = generateOperationId();
+    logInfo('CACHE_MGMT', 'Showing cache statistics', { operationId });
+    
+    const stats = repositoryCache.getStats();
+    const sizeInKB = Math.round(stats.totalSize / 1024);
+    
+    logInfo('CACHE_MGMT', 'Cache statistics retrieved', {
+        operationId,
+        stats,
+        sizeInKB
+    });
+    
+    const message = stats.entries > 0
+        ? `📊 Cache Statistics:\n• ${stats.entries} cached entries\n• ${sizeInKB} KB total size\n• 24-hour TTL (1 hour for 404s)`
+        : '📊 Cache is currently empty';
+    
+    if (stats.entries > 0) {
+        const selectedAction = await vscode.window.showInformationMessage(message, 'Clear Cache');
+        if (selectedAction === 'Clear Cache') {
+            await clearRepositoryCache();
+        }
+    } else {
+        vscode.window.showInformationMessage(message);
+    }
+}
+
+interface PluginManifest {
+    name: string;
+    description: string;
+    version?: string;
+    keywords?: string[];
+    agents?: string[];
+    skills?: string[];
+    prompts?: string[];
+    instructions?: string[];
+}
+
+interface PluginEntry {
+    folderName: string;
+    pluginPath: string;
+    manifest: PluginManifest;
+}
+
+async function fetchPluginList(repository: string, branch: string): Promise<PluginEntry[]> {
+    const pluginDirs = await fetchDirectoryContents(repository, branch, 'plugins');
+    const dirs = pluginDirs.filter(f => f.type === 'dir');
+
+    const entries: PluginEntry[] = [];
+    await Promise.all(dirs.map(async (dir) => {
+        try {
+            const manifestUrl = `https://raw.githubusercontent.com/${repository}/${branch}/plugins/${dir.name}/.github/plugin/plugin.json`;
+            const json = await downloadFile(manifestUrl);
+            const manifest: PluginManifest = JSON.parse(json);
+            entries.push({ folderName: dir.name, pluginPath: `plugins/${dir.name}`, manifest });
+        } catch {
+            // plugin.json missing or malformed — skip this entry
+        }
+    }));
+
+    return entries.sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
+}
+
+async function installPluginResources(
+    entry: PluginEntry,
+    repository: string,
+    branch: string,
+    workspaceFolder: string
+): Promise<{ installed: string[]; errors: string[] }> {
+    const installed: string[] = [];
+    const errors: string[] = [];
+
+    const resourceMappings: Array<{ manifestKey: keyof PluginManifest; localDir: string }> = [
+        { manifestKey: 'agents', localDir: 'agents' },
+        { manifestKey: 'prompts', localDir: 'prompts' },
+        { manifestKey: 'instructions', localDir: 'instructions' },
+        { manifestKey: 'skills', localDir: 'skills' },
+    ];
+
+    for (const { manifestKey, localDir } of resourceMappings) {
+        const paths = (entry.manifest[manifestKey] as string[] | undefined) ?? [];
+        for (const relPath of paths) {
+            // relPath is like "./agents", "./skills/foo", etc.
+            const normalized = relPath.replace(/^\.\//, '');
+            const repoPath = `${entry.pluginPath}/${normalized}`;
+
+            try {
+                const files = await fetchDirectoryContents(repository, branch, repoPath);
+                const fileItems = files.filter(f => f.type === 'file');
+
+                // Determine local target directory
+                // For skills, preserve the skill subfolder name
+                const segments = normalized.split('/');
+                const targetSubDir = segments.length > 1
+                    ? path.join(workspaceFolder, '.github', localDir, ...segments.slice(1))
+                    : path.join(workspaceFolder, '.github', localDir);
+
+                if (!fs.existsSync(targetSubDir)) {
+                    fs.mkdirSync(targetSubDir, { recursive: true });
+                }
+
+                for (const file of fileItems) {
+                    if (!file.download_url) { continue; }
+                    const content = await downloadFile(file.download_url);
+                    const filePath = `${repoPath}/${file.name}`;
+                    const attribution = createAttributionComment(repository, branch, filePath);
+                    fs.writeFileSync(path.join(targetSubDir, file.name), attribution + content);
+                    installed.push(file.name);
+                }
+            } catch (err) {
+                errors.push(`${relPath}: ${err}`);
+            }
+        }
+    }
+
+    return { installed, errors };
+}
+
+async function findAndAddPlugin() {
+    const operationId = generateOperationId();
+    logInfo('FIND_PLUGIN', 'Starting find and add plugin operation', { operationId });
+
+    const workspaceFolder = getWorkspaceFolder();
+    if (!workspaceFolder) {
+        logError('FIND_PLUGIN', 'No workspace folder found', { operationId });
+        return;
+    }
+
+    const repoConfig = await selectRepository();
+    if (!repoConfig) {
+        logWarn('FIND_PLUGIN', 'Repository selection cancelled', { operationId });
+        return;
+    }
+    const { repository, branch } = repoConfig;
+
+    let plugins: PluginEntry[];
+    try {
+        plugins = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Loading available plugins...',
+            cancellable: false
+        }, () => fetchPluginList(repository, branch));
+    } catch (error) {
+        logError('FIND_PLUGIN', 'Failed to load plugins', { operationId, error });
+        vscode.window.showErrorMessage(`Failed to load plugins: ${error}`);
+        return;
+    }
+
+    if (plugins.length === 0) {
+        vscode.window.showWarningMessage('No plugins found in the target repository.');
+        return;
+    }
+
+    const quickPickItems = plugins.map(p => ({
+        label: p.manifest.name,
+        description: p.manifest.description,
+        detail: p.manifest.keywords?.join(', '),
+        entry: p
+    }));
+
+    const selected = await vscode.window.showQuickPick(quickPickItems, {
+        matchOnDescription: true,
+        matchOnDetail: true,
+        placeHolder: 'Search and select a plugin to add to your project...'
+    });
+
+    if (!selected) { return; }
+
+    logInfo('FIND_PLUGIN', 'User selected plugin', { operationId, plugin: selected.entry.folderName });
+
+    let installed: string[], errors: string[];
+    try {
+        ({ installed, errors } = await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Installing plugin "${selected.label}"...`,
+            cancellable: false
+        }, () => installPluginResources(selected.entry, repository, branch, workspaceFolder)));
+    } catch (error) {
+        logError('FIND_PLUGIN', 'Failed to install plugin', { operationId, error });
+        vscode.window.showErrorMessage(`Failed to install plugin: ${error}`);
+        return;
+    }
+
+    logInfo('FIND_PLUGIN', 'Plugin installation complete', { operationId, installed: installed.length, errors: errors.length });
+
+    if (errors.length > 0) {
+        vscode.window.showWarningMessage(
+            `Plugin "${selected.label}" installed with ${installed.length} file(s). ${errors.length} error(s): ${errors.join('; ')}`
+        );
+    } else {
+        vscode.window.showInformationMessage(
+            `Plugin "${selected.label}" installed — ${installed.length} file(s) added to your project.`
+        );
+    }
+}
+
+function createAttributionComment(repository: string, branch: string, resourcePath: string): string {
+    return `# Synced from: https://github.com/${repository}/blob/${branch}/${resourcePath}\n`;
 }

@@ -19,7 +19,6 @@ All notable changes to the "awesome-copilot-sync" extension will be documented i
 ### Features
 - **Configure Repository**: Set custom target repositories and branches
 - **Initialize Structure**: Create proper `.github/` directory structure
-- **Sync All Resources**: Download everything in one operation
 - **Selective Sync**: Choose specific resource types to sync
 - **Attribution Tracking**: Automatic source attribution in synced files
 - **Progress Feedback**: Real-time sync progress with cancellation support

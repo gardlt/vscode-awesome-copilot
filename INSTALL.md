@@ -75,11 +75,7 @@ your-project/
 
 ### Step 3: Sync Content
 
-**Option A: Sync Everything**
-- Command: `Awesome Copilot: Sync All Resources`
-- Downloads all agents, prompts, instructions, and skills
-
-**Option B: Selective Sync**
+**Selective Sync**
 - `Awesome Copilot: Sync Agents Only` - Chat agents only
 - `Awesome Copilot: Sync Prompts Only` - Reusable prompts only
 - `Awesome Copilot: Sync Instructions Only` - Coding standards only

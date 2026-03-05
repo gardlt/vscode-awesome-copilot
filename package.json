@@ -36,8 +36,8 @@
         "category": "Awesome Copilot"
       },
       {
-        "command": "awesome-copilot-sync.sync",
-        "title": "Sync All Resources",
+        "command": "awesome-copilot-sync.removeRepository",
+        "title": "Remove Repository",
         "category": "Awesome Copilot"
       },
       {
@@ -84,6 +84,21 @@
         "command": "awesome-copilot-sync.findAndAddSkill",
         "title": "Find and Add Skill",
         "category": "Awesome Copilot"
+      },
+      {
+        "command": "awesome-copilot-sync.findAndAddPlugin",
+        "title": "Find and Add Plugin",
+        "category": "Awesome Copilot"
+      },
+      {
+        "command": "awesome-copilot-sync.clearCache",
+        "title": "Clear Repository Cache",
+        "category": "Awesome Copilot"
+      },
+      {
+        "command": "awesome-copilot-sync.showCacheStats",
+        "title": "Show Cache Statistics",
+        "category": "Awesome Copilot"
       }
     ],
     "configuration": {
@@ -108,23 +123,37 @@
           "type": "boolean",
           "default": false,
           "description": "Check for updates when saving copilot files"
+        },
+        "awesome-copilot-sync.repositories": {
+          "type": "array",
+          "default": [],
+          "description": "List of repositories to sync from. When populated, overrides targetRepository/branch settings.",
+          "items": {
+            "type": "object",
+            "required": ["repository"],
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Human-readable name for this repository (defaults to owner/repo)"
+              },
+              "repository": {
+                "type": "string",
+                "description": "Repository in owner/repo format"
+              },
+              "branch": {
+                "type": "string",
+                "default": "main",
+                "description": "Branch to sync from"
+              }
+            }
+          }
         }
       }
     },
     "menus": {
-      "explorer/context": [
-        {
-          "command": "awesome-copilot-sync.sync",
-          "group": "navigation",
-          "when": "explorerResourceIsFolder"
-        }
-      ],
       "commandPalette": [
         {
           "command": "awesome-copilot-sync.configure"
-        },
-        {
-          "command": "awesome-copilot-sync.sync"
         },
         {
           "command": "awesome-copilot-sync.syncAgents"
