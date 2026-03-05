@@ -365,6 +365,44 @@ async function syncPluginsDir(repository: string, branch: string, pluginsDir: st
     logInfo('DISK_CACHE', 'Synced plugins to disk', { pluginsDir });
 }
 
+/**
+ * Syncs the marketplace.json index file from the marketplace repository.
+ * This file contains metadata about all available resources in the marketplace.
+ */
+async function syncMarketplaceIndex(repository: string, branch: string, cacheDir: string): Promise<void> {
+    try {
+        const url = `https://raw.githubusercontent.com/${repository}/${branch}/marketplace.json`;
+        const content = await downloadFile(url);
+        fs.writeFileSync(path.join(cacheDir, 'marketplace.json'), content);
+        logInfo('MARKETPLACE', 'Synced marketplace.json', { repository, branch, cacheDir });
+    } catch (err) {
+        logWarn('MARKETPLACE', 'Failed to sync marketplace.json', { repository, branch, error: err });
+    }
+}
+
+/**
+ * Ensures a marketplace is cached locally by syncing it from GitHub if needed.
+ * Similar to how `copilot plugin marketplace` works locally.
+ */
+async function ensureMarketplaceSynced(repository: string, branch: string): Promise<void> {
+    const cacheDir = getLocalCacheDir(repository);
+    const marketplaceJsonPath = path.join(cacheDir, 'marketplace.json');
+    
+    logInfo('MARKETPLACE', 'Ensuring marketplace is synced', { repository, branch, cacheDir });
+    
+    // If marketplace.json doesn't exist, sync it
+    if (!fs.existsSync(marketplaceJsonPath)) {
+        try {
+            await syncMarketplaceIndex(repository, branch, cacheDir);
+        } catch (err) {
+            logError('MARKETPLACE', 'Failed to sync marketplace', { repository, error: err });
+            throw err;
+        }
+    } else {
+        logInfo('MARKETPLACE', 'Marketplace already cached', { marketplaceJsonPath });
+    }
+}
+
 export function activate(context: vscode.ExtensionContext) {
     logInfo('EXTENSION', 'Awesome Copilot Sync extension is activating...');
     
@@ -381,6 +419,7 @@ export function activate(context: vscode.ExtensionContext) {
     const commands = [
         vscode.commands.registerCommand('awesome-copilot-sync.configure', configureRepository),
         vscode.commands.registerCommand('awesome-copilot-sync.removeRepository', removeRepository),
+        vscode.commands.registerCommand('awesome-copilot-sync.syncMarketplace', syncMarketplace),
         vscode.commands.registerCommand('awesome-copilot-sync.initializeStructure', initializeStructure),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddAgent', findAndAddAgent),
         vscode.commands.registerCommand('awesome-copilot-sync.findAndAddPrompt', findAndAddPrompt),
@@ -396,7 +435,7 @@ export function activate(context: vscode.ExtensionContext) {
     logInfo('EXTENSION', 'Registered commands', {
         commandCount: commands.length,
         commands: [
-            'configure', 'removeRepository', 'initializeStructure', 'findAndAddAgent', 'findAndAddPrompt',
+            'configure', 'removeRepository', 'syncMarketplace', 'initializeStructure', 'findAndAddAgent', 'findAndAddPrompt',
             'findAndAddInstruction', 'findAndAddSkill', 'findAndAddPlugin', 'clearCache', 'showCacheStats'
         ]
     });
@@ -460,6 +499,7 @@ async function configureRepository() {
 
     try {
         let updatedRepos: RepositoryConfig[];
+        let isNewEntry = false;
         if (existingEntry) {
             updatedRepos = repos.map(r =>
                 r.repository === repoInput ? { label, repository: repoInput, branch: branchInput } : r
@@ -468,10 +508,26 @@ async function configureRepository() {
             logInfo('CONFIG', 'Repository entry updated', { operationId, repository: repoInput, branch: branchInput });
         } else {
             updatedRepos = [...repos, { label, repository: repoInput, branch: branchInput }];
+            isNewEntry = true;
             vscode.window.showInformationMessage(`Added repository: ${label} (${repoInput}@${branchInput})`);
             logInfo('CONFIG', 'Repository entry added', { operationId, repository: repoInput, branch: branchInput });
         }
         await config.update('repositories', updatedRepos, vscode.ConfigurationTarget.Workspace);
+        
+        // Sync the marketplace if it's a new entry
+        if (isNewEntry) {
+            try {
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: `Syncing marketplace ${repoInput}...`,
+                    cancellable: false
+                }, () => ensureMarketplaceSynced(repoInput, branchInput));
+                logInfo('CONFIG', 'Marketplace synced after configuration', { operationId, repository: repoInput });
+            } catch (syncError) {
+                logWarn('CONFIG', 'Failed to sync marketplace after configuration', { operationId, repository: repoInput, error: syncError });
+                // Don't block the user if sync fails - marketplace can be synced later
+            }
+        }
     } catch (error) {
         logError('CONFIG', 'Failed to update configuration', error);
         vscode.window.showErrorMessage(`Failed to update configuration: ${error}`);
@@ -509,6 +565,33 @@ async function removeRepository() {
     await config.update('repositories', updatedRepos, vscode.ConfigurationTarget.Workspace);
     logInfo('REMOVE_REPO', 'Repository removed', { operationId, repository: selected.repo.repository });
     vscode.window.showInformationMessage(`Removed repository: ${selected.label}`);
+}
+
+async function syncMarketplace() {
+    const operationId = generateOperationId();
+    logInfo('SYNC_MARKETPLACE', 'Starting marketplace sync', { operationId });
+
+    const repoConfig = await selectRepository();
+    if (!repoConfig) {
+        logWarn('SYNC_MARKETPLACE', 'Marketplace selection cancelled', { operationId });
+        return;
+    }
+
+    try {
+        await vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: `Syncing marketplace ${repoConfig.repository}...`,
+            cancellable: false
+        }, async () => {
+            await syncMarketplaceIndex(repoConfig.repository, repoConfig.branch, getLocalCacheDir(repoConfig.repository));
+            logInfo('SYNC_MARKETPLACE', 'Marketplace sync completed', { operationId, repository: repoConfig.repository });
+        });
+
+        vscode.window.showInformationMessage(`✅ Marketplace synced: ${repoConfig.repository}`);
+    } catch (error) {
+        logError('SYNC_MARKETPLACE', 'Failed to sync marketplace', { operationId, error });
+        vscode.window.showErrorMessage(`Failed to sync marketplace: ${error}`);
+    }
 }
 
 async function migrateRepositorySettings(): Promise<void> {

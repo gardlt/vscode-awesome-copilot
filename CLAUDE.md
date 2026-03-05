@@ -15,6 +15,7 @@ This VS Code extension allows you to sync GitHub Copilot agents, prompts, instru
 ### Setup Commands
 - `Awesome Copilot: Configure Marketplace` - Set the marketplace to browse from
 - `Awesome Copilot: Remove Repository` - Remove a registered marketplace
+- `Awesome Copilot: Sync Marketplace` - Pull the latest marketplace index and resources
 - `Awesome Copilot: Initialize Project Structure` - Create the basic `.github/` directory structure
 
 ### Resource Commands

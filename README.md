@@ -75,11 +75,11 @@ For more targeted resource management, use the Find & Add commands:
 | Command | Description |
 |---------|-------------|
 | `Awesome Copilot: Configure Marketplace` | Set marketplace and branch |
+| `Awesome Copilot: Sync Marketplace` | Pull the latest marketplace index |
 | `Awesome Copilot: Initialize Project Structure` | Create `.github/` directory structure |
-| `Awesome Copilot: Find and Add Agent` | Discover and install agents from repository |
-| `Awesome Copilot: Find and Add Prompt` | Discover and install prompts from repository |
-| `Awesome Copilot: Find and Add Instruction` | Discover and install instructions from repository |
-| `Awesome Copilot: Sync Skills Only` | Download only skill folders |
+| `Awesome Copilot: Find and Add Agent` | Discover and install agents from marketplace |
+| `Awesome Copilot: Find and Add Prompt` | Discover and install prompts from marketplace |
+| `Awesome Copilot: Find and Add Instruction` | Discover and install instructions from marketplace |
 
 ### Find & Add Individual Resources
 | Command | Description |

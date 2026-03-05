@@ -41,7 +41,11 @@
         "category": "Awesome Copilot"
       },
       {
-        "command": "awesome-copilot-sync.initializeStructure",
+        "command": "awesome-copilot-sync.syncMarketplace",
+        "title": "Sync Marketplace",
+        "category": "Awesome Copilot"
+      },
+      {
         "title": "Initialize Project Structure",
         "category": "Awesome Copilot"
       },
