@@ -2,6 +2,11 @@
 
 All notable changes to the "awesome-copilot-sync" extension will be documented in this file.
 
+## [1.2.1] - 2026-03-05
+
+### Fixed
+- Minor stability improvements and bug fixes
+
 ## [1.2.0] - 2026-03-05
 
 ### Added
