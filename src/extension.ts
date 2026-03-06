@@ -408,8 +408,9 @@ async function configureRepository() {
     const repos = config.get<RepositoryConfig[]>('repositories') ?? [];
 
     const repoInput = await vscode.window.showInputBox({
-        prompt: 'Enter the repository to sync from (format: owner/repo)',
+        prompt: 'Enter the marketplace repository (format: owner/repo)',
         placeHolder: 'github/awesome-copilot',
+        value: 'github/awesome-copilot',
         validateInput: (value) => {
             if (!value || !value.includes('/')) {
                 return 'Please enter a valid repository format (owner/repo)';
