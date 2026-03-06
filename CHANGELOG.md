@@ -2,6 +2,11 @@
 
 All notable changes to the "awesome-copilot-sync" extension will be documented in this file.
 
+## [1.2.2] - 2026-03-05
+
+### Fixed
+- Pre-fill Configure Marketplace input with default `github/awesome-copilot` value
+
 ## [1.2.1] - 2026-03-05
 
 ### Fixed

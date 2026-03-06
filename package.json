@@ -2,7 +2,7 @@
   "name": "vscode-awesome-copilot",
   "displayName": "Awesome Copilot Sync",
   "description": "Sync GitHub Copilot agents, prompts, instructions, and skills from awesome-copilot repositories",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "publisher": "gardltio",
   "license": "MIT",
   "repository": {
@@ -110,7 +110,9 @@
           "description": "List of repositories to sync from. When populated, overrides targetRepository/branch settings.",
           "items": {
             "type": "object",
-            "required": ["repository"],
+            "required": [
+              "repository"
+            ],
             "properties": {
               "label": {
                 "type": "string",
