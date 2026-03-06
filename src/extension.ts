@@ -1115,7 +1115,7 @@ async function addAgentToProject(agent: AgentMetadata, workspaceFolder: string, 
         
         // Add attribution header
         const attribution = createAttributionComment(repository, branch, `agents/${agent.filename}`);
-        const finalContent = attribution + content;
+        const finalContent = content + attribution;
 
         // Write to local file
         const localPath = path.join(agentsDir, agent.filename);
@@ -1279,7 +1279,7 @@ async function addInstructionToProject(instruction: InstructionMetadata, workspa
         
         // Add attribution header
         const attribution = createAttributionComment(repository, branch, `instructions/${instruction.filename}`);
-        const finalContent = attribution + content;
+        const finalContent = content + attribution;
 
         // Write to local file
         const localPath = path.join(instructionsDir, instruction.filename);
@@ -1322,7 +1322,7 @@ async function addSkillToProject(skill: SkillMetadata, workspaceFolder: string, 
             const content = fs.readFileSync(srcPath, 'utf8');
             const attribution = createAttributionComment(repository, branch, `skills/${skill.filename}/${fileName}`);
             const destPath = path.join(skillDir, fileName);
-            fs.writeFileSync(destPath, attribution + content);
+            fs.writeFileSync(destPath, content + attribution);
             if (!firstFilePath) { firstFilePath = destPath; }
         }
 
@@ -1595,7 +1595,7 @@ async function installPluginResources(
                     if (!fs.statSync(srcFile).isFile()) { continue; }
                     const content = fs.readFileSync(srcFile, 'utf8');
                     const attribution = createAttributionComment(repository, branch, `${entry.pluginPath}/${normalized}/${fileName}`);
-                    fs.writeFileSync(path.join(targetSubDir, fileName), attribution + content);
+                    fs.writeFileSync(path.join(targetSubDir, fileName), content + attribution);
                     installed.push(fileName);
                 }
             } catch (err) {
