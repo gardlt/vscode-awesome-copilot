@@ -2,6 +2,11 @@
 
 All notable changes to the "awesome-copilot-sync" extension will be documented in this file.
 
+## [1.2.3] - 2026-03-06
+
+### Fixed
+- Move attribution comments to end of synced files (agents, instructions, skills, plugins) to avoid breaking frontmatter parsing
+
 ## [1.2.2] - 2026-03-05
 
 ### Fixed
