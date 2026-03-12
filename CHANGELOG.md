@@ -2,6 +2,18 @@
 
 All notable changes to the "agent-marketplace-sync" extension will be documented in this file.
 
+## [1.3.0] - 2026-03-12
+
+### Added
+- **`.claude` directory support**: Resources can now be synced into `.claude/` in addition to `.github/`, enabling compatibility with Claude Code and other Claude-based tooling
+- **Configurable base directory**: New `agent-marketplace-sync.baseDirectory` setting (`".github"` or `".claude"`) to control where synced resources are stored
+
+### Changed
+- Renamed extension from "Awesome Copilot Sync" to "Agent Marketplace Sync" for broader marketplace compatibility
+- Extension ID updated from `vscode-awesome-copilot` to `agent-marketplace-sync`
+- All command prefixes updated from `Awesome Copilot:` to `Agent Marketplace:`
+- All setting keys updated from `awesome-copilot-sync.*` to `agent-marketplace-sync.*`
+
 ## [1.2.4] - 2026-03-12
 
 ### Fixed
