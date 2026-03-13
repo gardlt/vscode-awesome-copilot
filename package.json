@@ -78,6 +78,11 @@
         "command": "agent-marketplace-sync.showCacheStats",
         "title": "Show Cache Statistics",
         "category": "Agent Marketplace"
+      },
+      {
+        "command": "agent-marketplace-sync.signIn",
+        "title": "Sign In with GitHub",
+        "category": "Agent Marketplace"
       }
     ],
     "configuration": {

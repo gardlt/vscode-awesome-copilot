@@ -242,6 +242,21 @@ interface RepositoryConfig {
     branch: string;
 }
 
+/** Parses a GitHub repo from either "owner/repo" or a full URL. Returns "owner/repo" or null if invalid. */
+function parseGitHubRepo(input: string): string | null {
+    const trimmed = input.trim();
+    // Full URL: https://github.com/owner/repo or github.com/owner/repo (with optional trailing slash or .git)
+    const urlMatch = trimmed.match(/(?:https?:\/\/)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/);
+    if (urlMatch) {
+        return urlMatch[1];
+    }
+    // Plain owner/repo
+    if (/^[^/]+\/[^/]+$/.test(trimmed)) {
+        return trimmed;
+    }
+    return null;
+}
+
 /**
  * Returns the local disk cache directory for a repository, creating it if it doesn't exist.
  * Maps "github/awesome-copilot" → "~/.copilot/marketplace-cache/github-awesome-copilot".
@@ -262,6 +277,18 @@ async function getGitHubToken(): Promise<string | undefined> {
         return session?.accessToken;
     } catch {
         return undefined;
+    }
+}
+
+/** Prompts the user to sign in with GitHub and shows the result. */
+async function signInWithGitHub(): Promise<void> {
+    try {
+        const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
+        if (session) {
+            vscode.window.showInformationMessage(`Signed in to GitHub as ${session.account.label}`);
+        }
+    } catch (error) {
+        vscode.window.showErrorMessage(`GitHub sign-in failed: ${error}`);
     }
 }
 
@@ -393,7 +420,8 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('agent-marketplace-sync.findAndAddSkill', findAndAddSkill),
         vscode.commands.registerCommand('agent-marketplace-sync.findAndAddPlugin', findAndAddPlugin),
         vscode.commands.registerCommand('agent-marketplace-sync.clearCache', clearRepositoryCache),
-        vscode.commands.registerCommand('agent-marketplace-sync.showCacheStats', showCacheStats)
+        vscode.commands.registerCommand('agent-marketplace-sync.showCacheStats', showCacheStats),
+        vscode.commands.registerCommand('agent-marketplace-sync.signIn', signInWithGitHub)
     ];
 
     commands.forEach(command => context.subscriptions.push(command));
@@ -430,21 +458,26 @@ async function configureRepository() {
     const config = vscode.workspace.getConfiguration('agent-marketplace-sync');
     const repos = config.get<RepositoryConfig[]>('repositories') ?? [];
 
-    const repoInput = await vscode.window.showInputBox({
-        prompt: 'Enter the marketplace repository (format: owner/repo)',
+    const rawInput = await vscode.window.showInputBox({
+        prompt: 'Enter the marketplace repository (owner/repo or full GitHub URL)',
         placeHolder: 'github/awesome-copilot',
         value: 'github/awesome-copilot',
         validateInput: (value) => {
-            if (!value || !value.includes('/')) {
-                return 'Please enter a valid repository format (owner/repo)';
+            if (!value) {
+                return 'Please enter a repository';
+            }
+            const stripped = parseGitHubRepo(value);
+            if (!stripped) {
+                return 'Please enter a valid repository (owner/repo or https://github.com/owner/repo)';
             }
             return null;
         }
     });
-    if (!repoInput) {
+    if (!rawInput) {
         logWarn('CONFIG', 'Configuration cancelled - no repository specified', { operationId });
         return;
     }
+    const repoInput = parseGitHubRepo(rawInput)!;
 
     const existingEntry = repos.find(r => r.repository === repoInput);
 
