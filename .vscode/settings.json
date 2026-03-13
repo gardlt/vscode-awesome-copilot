@@ -4,6 +4,10 @@
             "label": "github/awesome-copilot",
             "repository": "github/awesome-copilot",
             "branch": "main"
+        },
+        {
+            "repository": "gardlt/bocadillo-client",
+            "branch": "main"
         }
     ]
 }
