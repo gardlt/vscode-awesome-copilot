@@ -2,6 +2,15 @@
 
 All notable changes to the "agent-marketplace-sync" extension will be documented in this file.
 
+## [1.4.0] - 2026-03-13
+
+### Added
+- **Sign In with GitHub**: New `Agent Marketplace: Sign In with GitHub` command to explicitly trigger GitHub OAuth authentication via VS Code's built-in auth provider
+- **GitHub URL parsing**: The Configure Marketplace input now accepts full GitHub URLs (e.g. `https://github.com/owner/repo`) and automatically strips them to `owner/repo` format
+
+### Changed
+- **Simplified repository config**: Removed the `label` field from `RepositoryConfig` — the `repository` (`owner/repo`) value is now used directly as the display name everywhere, reducing unnecessary configuration
+
 ## [1.3.0] - 2026-03-12
 
 ### Added

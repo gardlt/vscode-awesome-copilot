@@ -80,6 +80,7 @@ For more targeted resource management, use the Find & Add commands:
 | `Agent Marketplace: Find and Add Skill` | Search and add skills with domain/complexity details |
 | `Agent Marketplace: Find and Add Plugin` | Search and add plugins from the marketplace |
 | `Agent Marketplace: Remove Repository` | Remove a registered marketplace |
+| `Agent Marketplace: Sign In with GitHub` | Authenticate with GitHub via VS Code's built-in OAuth flow |
 | `Agent Marketplace: Clear Repository Cache` | Clear cached repository data |
 | `Agent Marketplace: Show Cache Statistics` | Display cache usage and status |
 
@@ -105,7 +106,7 @@ Configure the extension through VS Code Settings:
 - **`autoSync`**: Automatically sync when workspace opens
 - **`syncOnSave`**: Check for updates when saving copilot files
 - **`baseDirectory`**: Base directory for synced resources — either `.github` (default, for GitHub Copilot) or `.claude` (for Claude)
-- **`repositories`**: List of marketplace repositories to sync from. When populated, overrides `targetRepository`/`branch`. Each entry supports `repository` (required, `owner/repo`), `label` (optional display name), and `branch` (optional, defaults to `main`)
+- **`repositories`**: List of marketplace repositories to sync from. When populated, overrides `targetRepository`/`branch`. Each entry requires `repository` (`owner/repo` or full GitHub URL) and optionally `branch` (defaults to `main`)
 
 ## 📁 Project Structure
 
